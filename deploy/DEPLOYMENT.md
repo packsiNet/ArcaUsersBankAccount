@@ -1,96 +1,98 @@
-# Ubuntu 24.04 deployment
+# Ubuntu 26.04 CI/CD
 
-Target: 4 vCPU, 8 GB RAM, 40 GB NVMe; domain `account.safetunnels.net`. These are deployment assumptions, not tested capacity guarantees.
+The workflow `.github/workflows/deploy.yml` tests every pull request and deploys successful pushes to `main`. A manual **Actions > Test and deploy Ubuntu 26.04 > Run workflow** on `main` also deploys. Production deployments are serialized; a server lock also prevents concurrent installers.
 
-## Host and database
+## Required GitHub settings
 
-Install the supported .NET 10 ASP.NET runtime from Microsoft's Ubuntu repository, PostgreSQL, Nginx, certbot and monitoring utilities. Review current official install instructions before provisioning: https://learn.microsoft.com/dotnet/core/install/linux-ubuntu-install and https://www.postgresql.org/download/linux/ubuntu/ . Allow managed SSH before enabling UFW, then allow only 80/443 publicly. Keep port 5080 and 5432 private.
+Under **Settings > Secrets and variables > Actions**, configure:
 
-```bash
-sudo apt update
-sudo apt install nginx postgresql certbot sysstat
-sudo useradd --system --home /var/lib/safetunnels --shell /usr/sbin/nologin safetunnels
-sudo install -d -o safetunnels -g safetunnels -m 700 /var/lib/safetunnels/keys
-sudo install -d -o root -g safetunnels -m 750 /etc/safetunnels /opt/safetunnels/app
-```
+| Name | Value |
+| --- | --- |
+| `APP_URL` | `https://account.zanatech.online` |
+| `SERVER_HOST` | `account.zanatech.online` or the server's IPv4 address |
+| `SERVER_USER` | `root` |
+| `SERVER_SSH_KEY` | Complete unencrypted OpenSSH private key, including BEGIN/END lines |
 
-Set PostgreSQL `listen_addresses = 'localhost'`, `password_encryption = 'scram-sha-256'`, and appropriate loopback `host` entries in `pg_hba.conf` using `scram-sha-256`, not trust. Set max_connections around 120 as a starting point; runtime pool is capped at 80. Tune after measurements.
+The matching public key must already be in `/root/.ssh/authorized_keys`. `SERVER_SSH_KEY` must be a secret; the other values can be secrets or variables. The server must already run Ubuntu **26.04**, have internet access and permit SSH from GitHub-hosted runners. Non-root users require passwordless sudo. No database password or application encryption key is needed in GitHub.
 
-Create a schema owner/migration role `safetunnels_owner` and a separate runtime role `safetunnels`; set their passwords interactively with `\password` so they are not stored in shell history. Example using `sudo -u postgres psql`:
+Optional settings: `SERVER_PORT` (default 22), `LETSENCRYPT_EMAIL` (renewal notices), `ADMIN_EMAIL` (default `admin@account.zanatech.online`), `SERVER_KNOWN_HOSTS` (verified SSH known_hosts entry). Existing managed domain/admin email must remain stable on subsequent deployments.
 
-```sql
-CREATE ROLE safetunnels_owner LOGIN;
-CREATE ROLE safetunnels LOGIN;
-CREATE DATABASE safetunnels OWNER safetunnels_owner;
-\password safetunnels_owner
-\password safetunnels
-\connect safetunnels
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO safetunnels;
-ALTER DEFAULT PRIVILEGES FOR ROLE safetunnels_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO safetunnels;
-ALTER DEFAULT PRIVILEGES FOR ROLE safetunnels_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO safetunnels;
-```
+Without `SERVER_KNOWN_HOSTS`, each run discovers and trusts the observed host key using ssh-keyscan; this does not independently authenticate the server. For verified host identity, obtain the key/fingerprint through your server provider's trusted console and supply the matching known_hosts line. SSH still enforces StrictHostKeyChecking. Passphrase-protected private keys are not supported by this unattended workflow.
 
-After migrations, grant DML on existing tables and sequences to runtime, but exclude schema changes. Restore grants if a backup rebuilds the database.
+If you configure GitHub environment protection on `production`, those rules apply before deployment. The workflow itself introduces no manual approval gate.
 
-## Application and keys
+## DNS and network prerequisites
 
-Run `dotnet publish SafeTunnels.Account -c Release -o artifacts/publish` on a build host. Copy the published directory to `/opt/safetunnels/app`; give root ownership and read/execute access to the service group. Confirm **no appsettings.Local.json** is in the output.
+Point the domain's A record to this server. If an AAAA record exists, it must also reach this server over IPv6; remove an incorrect AAAA record. HTTP port 80 must be publicly reachable for ACME issuance/renewal, and HTTPS 443 for the site. Provider firewalls/security groups must permit them; the installer manages only Ubuntu UFW. Disable forced CDN/proxy redirects that prevent ACME webroot verification during initial setup. Do not configure another Nginx site with the same server_name.
 
-Copy `environment.example` to `/etc/safetunnels/account.env` and set root:safetunnels ownership, mode 0640. Replace all placeholders. Generate an AES key using `openssl rand -base64 32`, save it only into the protected environment file and encrypted secret backup. Do not paste secrets into Git, issue trackers or command-line arguments. The DataProtection directory must remain writable only by the service user.
+UFW preserves existing rules and allows the configured SSH port before enabling, then opens 80/443. PostgreSQL and Kestrel listen on loopback, at 5432 and 5080. Existing non-loopback PostgreSQL installations are rejected rather than silently changed. The installer is intended for a dedicated server and does not reinstall Ubuntu, delete databases or reset firewall rules.
 
-Use the migration role connection only in a protected one-time provisioning environment, then run:
+## Automated steps
 
-```bash
-sudo -u safetunnels sh -c 'set -a; . /etc/safetunnels/migration.env; set +a; cd /opt/safetunnels/app; dotnet SafeTunnels.Account.dll --migrate'
-```
+1. CI runs shell syntax checks, ShellCheck, server-state tests, .NET self-tests, and 16 Chromium/PostgreSQL integration tests against a disposable database. It builds local CSS/JS and publishes a portable framework-dependent .NET 10 release with no local credentials.
+2. The deploy job transfers a checksummed artifact over authenticated SSH. The server verifies its checksum before running the root installer.
+3. The installer uses Ubuntu 26.04's own repositories to install `aspnetcore-runtime-10.0`, PostgreSQL, Nginx, Certbot with its Nginx plugin, UFW and required utilities. No SDK/Node compiler is installed on production. [Microsoft installation documentation](https://learn.microsoft.com/dotnet/core/install/linux-ubuntu-install).
+4. It creates stable random database passwords, a 256-bit AES key, backup key and administrator password **once on the server**. It creates separate migration and runtime roles, takes an encrypted pre-migration backup, applies EF migrations and creates the initial administrator without resetting an existing account.
+5. It activates `/opt/safetunnels/current`, starts the hardened systemd service, and checks application/schema/database readiness. Failures after activation restore the previous application symlink and managed Nginx configuration. Database migrations are never automatically reversed, because that could destroy submitted records. Future migrations must remain compatible with the previous app when rollback is required.
+6. It obtains a trusted certificate with Certbot's HTTP webroot method, configures HTTPS/HTTP redirection, enables `certbot.timer` and a post-renewal Nginx reload hook. Optional email is used if provided; otherwise ACME registration proceeds without email.
+7. It checks HTTPS locally with certificate verification and then from the GitHub runner. Successful output reports the site URL, never credentials.
 
-The migration file uses the same environment variables as `account.env`, except its connection string uses `safetunnels_owner`. Create the first administrator with a separate protected bootstrap file containing `Bootstrap__Email` and `Bootstrap__Password` (minimum 14 characters, mixed case, digits, symbol). Source the normal runtime environment and bootstrap file, then run `dotnet SafeTunnels.Account.dll --create-admin` as the service user. Delete the temporary bootstrap file afterward. No automatic startup seeding occurs, and existing administrators are never silently reset.
+Packages receive available distro updates when deploying. The PostgreSQL major version comes from Ubuntu 26.04's repository; CI uses PostgreSQL 17 for integration checks. Test validation cannot replace exercising the installer on the actual Ubuntu server.
 
-Alternatively, from source on a build/admin host:
+## First administrator login
+
+Retrieve credentials over your own SSH session:
 
 ```bash
-dotnet tool restore
-dotnet ef database update --project SafeTunnels.Account
+ssh root@account.zanatech.online 'cat /root/safetunnels-admin.txt'
 ```
 
-Here `ConnectionStrings__DefaultConnection` must be the migration-role connection. Automatic runtime migration is deliberately disabled. Back up before any schema upgrade.
+Open `https://account.zanatech.online/admin/login`. The credentials file is root-only (0600). Never paste it into Actions logs or Git. Redeployment preserves the database, administrator password, AES key and DataProtection ring.
 
-## TLS and proxy
+Persistent state:
 
-Point the DNS A/AAAA records to the server. Before the first certificate, enable only the HTTP server block in `nginx.conf`, create `/var/www/letsencrypt`, and verify `sudo nginx -t`.
+| Location | Purpose |
+| --- | --- |
+| `/etc/safetunnels/secrets.json` | Root-only persistent keys/passwords; never delete to fix a deployment |
+| `/etc/safetunnels/account.env` | Root-only runtime configuration read by systemd |
+| `/var/lib/safetunnels/keys` | Application-owned DataProtection ring |
+| `/opt/safetunnels/releases/` | Immutable published releases |
+| `/opt/safetunnels/current` | Active release symlink |
+| `/var/backups/safetunnels/` | Encrypted pre-deploy and daily backups, 30-day retention |
+| `/etc/safetunnels/backup.key` | Recovery key; keep a protected copy off-server |
+
+`migration.env` contains elevated credentials only during provisioning and is deleted after successful migration/admin setup. A failed migration can leave this root-only file for diagnostics; subsequent deployment replaces it. Existing unmanaged installations require an explicit key/database migration; the script refuses to generate replacement keys over an existing account.env.
+
+## Operations
 
 ```bash
-sudo certbot certonly --webroot -w /var/www/letsencrypt -d account.safetunnels.net
+systemctl status safetunnels-account nginx postgresql
+journalctl -u safetunnels-account --since '15 minutes ago'
+cat /etc/safetunnels/database-setup.log   # root-only; do not publish
+nginx -t
+certbot certificates
+certbot renew --dry-run
+systemctl list-timers certbot.timer safetunnels-backup.timer
+/usr/local/sbin/safetunnels-backup
+curl -f -H 'Host: account.zanatech.online' -H 'X-Forwarded-Proto: https' http://127.0.0.1:5080/health/ready
 ```
 
-Install the complete supplied Nginx configuration after the certificate exists. Place the supplied service in `/etc/systemd/system/safetunnels-account.service`:
+The readiness URL is blocked by Nginx externally. On migration failure, inspect the transient `safetunnels-migrate-*` systemd journal. Error details are kept on the server rather than uploaded as CI artifacts. Re-run the workflow after correcting DNS/SSH/package prerequisites. A new workflow attempt creates a new release ID.
+
+## Backup and recovery
+
+Daily backups contain a PostgreSQL custom-format dump, encryption state and DataProtection ring. Archives use AES-256-CBC with PBKDF2 (200,000 iterations); they are root-only. Copy backups **and the recovery key** to separate protected off-server storage; local backups alone do not cover loss of the server. The application AES key is required to decrypt stored IBANs. Define retention and rehearse a restore before relying on backups.
+
+On an isolated recovery host, with root-only working directory:
 
 ```bash
-sudo nginx -t
-sudo systemctl reload nginx
-sudo systemctl daemon-reload
-sudo systemctl enable --now safetunnels-account
-sudo certbot renew --dry-run
-sudo systemctl status safetunnels-account
+umask 077
+mkdir -p /root/safetunnels-recovery
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass file:/PROTECTED/backup.key \
+  -in /PROTECTED/BACKUP.tar.enc -out /root/safetunnels-recovery/backup.tar
+tar -xf /root/safetunnels-recovery/backup.tar -C /root/safetunnels-recovery
 ```
 
-Run a local trusted request through Nginx to confirm HTTPS, HSTS, secure cookies, forwarding behavior, admin access restrictions, no-store and noindex headers. No sensitive values should be in URLs or operational logs. The service automatically restarts on failure. Only loopback forwarding proxies are trusted; if the topology changes, review trust boundaries before modifying headers.
+Stop the app; restore `database.dump` into an isolated database with `pg_restore --no-owner --role=safetunnels_owner`, restore the preserved encryption state and DataProtection keys, recreate grants and protected environment, then verify decryption and masked admin output before switching traffic. Do not restore over the live database automatically. Backup archives currently rely on protected storage for tamper protection.
 
-## Backup and restore
-
-Store backups outside the server in an encrypted, access-controlled repository. PostgreSQL dumps contain personal names/mobile and encrypted bank fields. Use `.pgpass` mode 0600 or a managed secret for authentication, never plaintext passwords in command arguments. Back up daily while this temporary campaign is running, subject to the operator's retention policy.
-
-```bash
-pg_dump -h 127.0.0.1 -U safetunnels_owner -Fc safetunnels > /PROTECTED_LOCATION/safetunnels.dump
-```
-
-Separately back up the entire protected AES key set and `/var/lib/safetunnels/keys`. Encrypt these secret backups with a separately protected recovery key. A database backup without its AES keys cannot recover bank data. Old AES keys must survive active records and retained backups. DataProtection keys preserve cookie/token usability; a lost ring invalidates sessions and pending forms.
-
-To restore, provision an isolated database, create roles, stop the application, run `pg_restore --no-owner --role=safetunnels_owner -d RESTORE_DATABASE safetunnels.dump` using an appropriately privileged operator, restore permissions, AES keys and DataProtection ring, then test decryption and masked admin output. Confirm there are no public listeners before starting. Rehearse restore before collection begins. Rotate admin passwords after a security event.
-
-## Release gate
-
-Set a collection closing date, privacy notice, retention period and approved administrator list. Confirm the IBAN collection purpose and operational requirements in SECURITY.md. Run the Playwright suite and 100/300/600 plus burst k6 scenarios on an isolated staging database on the target Ubuntu server; retain CPU/RAM/I/O and HTTP metrics. Audit NuGet dependencies (`dotnet list SafeTunnels.Account package --vulnerable --include-transitive`) and npm build dependencies (`npm audit`). Review DNS/TLS, firewall, backups and restoration. This workspace does not provision the public server or publish to the final domain.
-
-The simplified form uses bank name and IBAN only. `RemoveCardAndAccountNumbers` permanently drops the previous encrypted account-number and card-last-four columns. Its schema rollback cannot recover those values; retain a protected pre-upgrade backup if recovery is required.
+The removal migration `RemoveCardAndAccountNumbers` drops old account/card columns permanently. An app rollback cannot recover those values; only a pre-upgrade backup can.

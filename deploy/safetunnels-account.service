@@ -6,8 +6,8 @@ Wants=postgresql.service
 [Service]
 User=safetunnels
 Group=safetunnels
-WorkingDirectory=/opt/safetunnels/app
-ExecStart=/usr/bin/dotnet /opt/safetunnels/app/SafeTunnels.Account.dll
+WorkingDirectory=/opt/safetunnels/current
+ExecStart=/usr/bin/dotnet /opt/safetunnels/current/SafeTunnels.Account.dll
 EnvironmentFile=/etc/safetunnels/account.env
 Restart=on-failure
 RestartSec=5

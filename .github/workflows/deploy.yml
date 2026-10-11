@@ -1,0 +1,129 @@
+name: Test and deploy Ubuntu 26.04
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-ci-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 20
+    env:
+      TEST_POSTGRES_ADMIN_URL: postgresql://postgres:synthetic-ci-password@127.0.0.1:5432/postgres
+      TEST_DATABASE_URL: postgresql://postgres:synthetic-ci-password@127.0.0.1:5432/safetunnels_test
+      NUGET_PACKAGES: ${{ github.workspace }}/.packages
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check deployment scripts
+        run: |
+          bash -n deploy/install.sh deploy/backup.sh deploy/remote-deploy.sh
+          shellcheck deploy/install.sh deploy/backup.sh deploy/remote-deploy.sh
+          python3 -m unittest discover -s deploy/tests -v
+      - name: Build and test
+        run: |
+          npm ci
+          npm run build
+          node tools/setup-local.mjs
+          dotnet restore SafeTunnels.Account/SafeTunnels.Account.csproj
+          dotnet build SafeTunnels.Account/SafeTunnels.Account.csproj -c Release --no-restore
+          dotnet SafeTunnels.Account/bin/Release/net10.0/SafeTunnels.Account.dll --self-test
+      - name: Browser and database integration tests
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ASPNETCORE_URLS: http://127.0.0.1:5080
+        run: |
+          npx playwright install --with-deps chromium
+          cd SafeTunnels.Account
+          dotnet bin/Release/net10.0/SafeTunnels.Account.dll --migrate --create-admin
+          dotnet bin/Release/net10.0/SafeTunnels.Account.dll > ../.local/app.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          cd ..
+          ready=false
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5080/health/ready >/dev/null; then ready=true; break; fi
+            sleep 2
+          done
+          test "$ready" = true
+          npm test
+      - name: Publish portable release
+        if: github.event_name != 'pull_request'
+        run: |
+          dotnet publish SafeTunnels.Account/SafeTunnels.Account.csproj -c Release --no-restore -p:UseAppHost=false -o artifacts/bundle/app
+          test ! -f artifacts/bundle/app/appsettings.Local.json
+          cp -a deploy artifacts/bundle/deploy
+          tar -C artifacts/bundle -czf artifacts/release.tar.gz app deploy
+          cd artifacts
+          sha256sum release.tar.gz > release.tar.gz.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: server-release
+          path: |
+            artifacts/release.tar.gz
+            artifacts/release.tar.gz.sha256
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment:
+      name: production
+      url: https://account.zanatech.online
+    concurrency:
+      group: production-deployment
+      cancel-in-progress: false
+    env:
+      APP_URL: ${{ secrets.APP_URL || vars.APP_URL || 'https://account.zanatech.online' }}
+      SERVER_HOST: ${{ secrets.SERVER_HOST || vars.SERVER_HOST }}
+      SERVER_USER: ${{ secrets.SERVER_USER || vars.SERVER_USER || 'root' }}
+      SERVER_PORT: ${{ secrets.SERVER_PORT || vars.SERVER_PORT || '22' }}
+      SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+      SERVER_KNOWN_HOSTS: ${{ secrets.SERVER_KNOWN_HOSTS || vars.SERVER_KNOWN_HOSTS }}
+      LETSENCRYPT_EMAIL: ${{ secrets.LETSENCRYPT_EMAIL || vars.LETSENCRYPT_EMAIL }}
+      ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL || vars.ADMIN_EMAIL }}
+      RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: server-release
+          path: artifacts
+      - name: Install and deploy
+        run: bash deploy/remote-deploy.sh
+      - name: Verify public HTTPS
+        run: curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 --max-time 30 "$APP_URL/" --output /dev/null

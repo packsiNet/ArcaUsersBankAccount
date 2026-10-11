@@ -9,3 +9,5 @@ artifacts/
 *.user
 **/appsettings.Local.json
 test-results/
+__pycache__/
+*.pyc
