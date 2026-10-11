@@ -1,4 +1,7 @@
+using System.IO.Compression;
+using System.Security;
 using System.Text;
+using System.Xml;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -45,15 +48,40 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
     public string Mask(BankAccount bank) => EncryptionService.Mask(
         encryption.Decrypt(bank.IBAN, EncryptionService.Purpose(bank.Id, "iban")));
     public async Task<IActionResult> OnPostLogoutAsync() { await signIn.SignOutAsync(); return RedirectToPage("/Admin/Login"); }
-    public async Task<IActionResult> OnPostExportAsync(CancellationToken ct)
+    private static readonly string[] ExportHeader = ["TrackingCode", "Bank", "IBANMasked", "CreatedAtUtc"];
+    private async Task<List<string[]>> ExportRowsAsync(CancellationToken ct)
     {
         // Fixed, bounded report. No names/mobile/full bank values are exported.
         var rows = await Query().Include(x => x.BankAccounts).OrderBy(x => x.CreatedAt).Take(10000).ToListAsync(ct);
-        var csv = new StringBuilder("TrackingCode,Bank,IBANMasked,CreatedAtUtc\r\n");
-        foreach (var a in rows) foreach (var b in a.BankAccounts)
-            csv.AppendLine(string.Join(",", new[] { a.TrackingCode, b.BankName, Mask(b), a.CreatedAt.ToString("O") }.Select(CsvCell)));
+        return rows.SelectMany(a => a.BankAccounts.Select(b => new[] { a.TrackingCode, b.BankName, Mask(b), a.CreatedAt.ToString("O") })).ToList();
+    }
+    public async Task<IActionResult> OnPostExportAsync(CancellationToken ct)
+    {
+        var csv = new StringBuilder(string.Join(",", ExportHeader) + "\r\n");
+        foreach (var row in await ExportRowsAsync(ct)) csv.AppendLine(string.Join(",", row.Select(CsvCell)));
         return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray(), "text/csv; charset=utf-8", "accounts-masked.csv");
     }
+    public async Task<IActionResult> OnPostExportExcelAsync(CancellationToken ct)
+    {
+        // Minimal single-sheet workbook; every cell is an inline string, so nothing is evaluated as a formula.
+        var sheet = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
+        foreach (var row in (await ExportRowsAsync(ct)).Prepend(ExportHeader))
+            sheet.Append("<row>").AppendJoin("", row.Select(XlsxCell)).Append("</row>");
+        sheet.Append("</sheetData></worksheet>");
+        using var stream = new MemoryStream();
+        using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            void Add(string name, string xml) { using var w = new StreamWriter(zip.CreateEntry(name).Open(), new UTF8Encoding(false)); w.Write(xml); }
+            Add("[Content_Types].xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>");
+            Add("_rels/.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>");
+            Add("xl/workbook.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Accounts\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
+            Add("xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>");
+            Add("xl/worksheets/sheet1.xml", sheet.ToString());
+        }
+        return File(stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "accounts-masked.xlsx");
+    }
+    public static string XlsxCell(string s) =>
+        "<c t=\"inlineStr\"><is><t xml:space=\"preserve\">" + SecurityElement.Escape(new string(s.Where(XmlConvert.IsXmlChar).ToArray())) + "</t></is></c>";
     public static string CsvCell(string s)
     {
         if (s.TrimStart().StartsWith('=') || s.TrimStart().StartsWith('+') || s.TrimStart().StartsWith('-') || s.TrimStart().StartsWith('@')) s = "'" + s;
