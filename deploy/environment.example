@@ -1,0 +1,7 @@
+ASPNETCORE_ENVIRONMENT=Production
+ASPNETCORE_URLS=http://127.0.0.1:5080
+ConnectionStrings__DefaultConnection="Host=127.0.0.1;Database=safetunnels;Username=safetunnels;Password=REPLACE;Maximum Pool Size=80;Timeout=15;Command Timeout=30;Include Error Detail=false;Log Parameters=false"
+Encryption__ActiveKeyId=k1
+Encryption__Keys__k1=REPLACE_WITH_BASE64_32_RANDOM_BYTES
+DataProtection__KeyPath=/var/lib/safetunnels/keys
+# Bootstrap__Email and Bootstrap__Password are supplied only to the one-time CLI.

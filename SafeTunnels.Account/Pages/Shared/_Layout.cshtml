@@ -1,0 +1,16 @@
+﻿<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>@ViewData["Title"] | SafeTunnels</title>
+    <link rel="stylesheet" href="~/css/site.min.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="site-header"><a href="/" class="brand"><span class="brand-mark">S</span><span dir="ltr">SafeTunnels<span class="brand-sub">ACCOUNT PORTAL</span></span></a><span class="secure-pill"><span class="status-dot"></span> سامانه ثبت اطلاعات</span></header>
+    <main>@RenderBody()</main>
+    <footer class="site-footer"><span>اطلاعات شما، با احترام به حریم خصوصی</span><a href="https://safetunnels.net" rel="noreferrer">وب‌سایت SafeTunnels ↗</a></footer>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

@@ -1,0 +1,15 @@
+import pg from 'pg';
+import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
+const conn = process.env.TEST_DATABASE_URL ?? 'postgresql://postgres@127.0.0.1:55432/postgres';
+const client = new pg.Client({ connectionString: conn });
+await client.connect();
+if (!(await client.query("SELECT 1 FROM pg_database WHERE datname='safetunnels_test'")).rowCount) await client.query('CREATE DATABASE safetunnels_test');
+await client.end();
+fs.mkdirSync('.local', {recursive:true});
+const path='.local/test-settings.json';
+if(!fs.existsSync(path))fs.writeFileSync(path,JSON.stringify({email:'admin@example.invalid',password:randomBytes(24).toString('base64url')+'aA1!',key:randomBytes(32).toString('base64')}));
+const secrets=JSON.parse(fs.readFileSync(path));
+const config={ConnectionStrings:{DefaultConnection:'Host=127.0.0.1;Port=55432;Database=safetunnels_test;Username=postgres;Maximum Pool Size=80;Include Error Detail=false;Log Parameters=false'},Encryption:{ActiveKeyId:'local1',Keys:{local1:secrets.key}},Bootstrap:{Email:secrets.email,Password:secrets.password}};
+fs.writeFileSync('SafeTunnels.Account/appsettings.Local.json',JSON.stringify(config,null,2));
+console.log('Synthetic local test configuration created; secrets were not printed.');

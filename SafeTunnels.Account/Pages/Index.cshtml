@@ -1,0 +1,38 @@
+﻿@page
+@model SafeTunnels.Account.Pages.IndexModel
+@using SafeTunnels.Account.Validation
+@{ ViewData["Title"] = "ثبت اطلاعات بانکی"; }
+<div class="portal-shell">
+    <section class="form-panel">
+        <div class="panel-heading"><div><span class="eyebrow">فرم ثبت اطلاعات</span><h2>ثبت مشخصات و شبا</h2></div><span class="required-note">* الزامی</span></div>
+        <form method="post" id="registration-form" novalidate autocomplete="off">
+            <input type="hidden" asp-for="SubmissionToken" />
+            <div asp-validation-summary="ModelOnly" class="error-summary" role="alert"></div>
+            <section class="form-section"><h3><span class="section-number">۰۱</span> اطلاعات شخصی</h3><div class="field-grid">
+                <div class="field"><label asp-for="Input.FirstName">نام <b>*</b></label><input asp-for="Input.FirstName" maxlength="100" placeholder="نام شما" autocomplete="given-name" required /><span asp-validation-for="Input.FirstName" class="field-error" aria-live="polite"></span></div>
+                <div class="field"><label asp-for="Input.LastName">نام خانوادگی <b>*</b></label><input asp-for="Input.LastName" maxlength="100" placeholder="نام خانوادگی شما" autocomplete="family-name" required /><span asp-validation-for="Input.LastName" class="field-error" aria-live="polite"></span></div>
+                <div class="field full"><label asp-for="Input.Mobile">شماره همراه <span class="optional">اختیاری</span></label><input asp-for="Input.Mobile" dir="ltr" inputmode="tel" type="tel" maxlength="16" placeholder="0912 345 6789" autocomplete="tel" /><span asp-validation-for="Input.Mobile" class="field-error" aria-live="polite"></span><small>در صورت تمایل، برای تکمیل مشخصات وارد کنید.</small></div>
+            </div></section>
+            <section class="form-section"><h3><span class="section-number">۰۲</span> اطلاعات حساب بانکی</h3><p class="section-help">اطلاعات را مطابق حساب بانکی خود وارد کنید.</p><span asp-validation-for="Input.Accounts" class="field-error"></span>
+                <div id="accounts">
+                @for (var i = 0; i < Model.Input.Accounts.Count; i++)
+                {
+                    <div class="account-card" data-account>
+                        <div class="account-heading"><h4>حساب بانکی <span data-ordinal>@(i + 1)</span></h4><button type="button" class="remove-account" hidden="@(i == 0)">حذف حساب</button></div>
+                        <div class="field-grid">
+                            <div class="field full"><label asp-for="Input.Accounts[i].BankName">نام بانک <b>*</b></label><select asp-for="Input.Accounts[i].BankName" data-bank-select required><option value="">بانک را انتخاب کنید</option>@foreach (var bank in BankCatalog.Names) { <option value="@bank">@bank</option> }</select><span asp-validation-for="Input.Accounts[i].BankName" class="field-error" aria-live="polite"></span></div>
+                            <div class="field full" data-other-bank><label asp-for="Input.Accounts[i].OtherBankName">نام بانک مورد نظر <b>*</b></label><input asp-for="Input.Accounts[i].OtherBankName" maxlength="100" placeholder="نام بانک را وارد کنید" /><span asp-validation-for="Input.Accounts[i].OtherBankName" class="field-error" aria-live="polite"></span></div>
+                            <div class="field full"><label asp-for="Input.Accounts[i].IBAN">شماره شبا <b>*</b></label><input asp-for="Input.Accounts[i].IBAN" data-format="iban" dir="ltr" inputmode="text" maxlength="35" placeholder="IR00 0000 0000 0000 0000 0000 00" required /><span asp-validation-for="Input.Accounts[i].IBAN" class="field-error" aria-live="polite"></span><small>۲۴ رقم شبا؛ با یا بدون پیشوند IR</small></div>
+                        </div>
+                    </div>
+                }
+                </div>
+                <button type="button" id="add-account" class="add-account">+ افزودن حساب بانکی دیگر</button><span id="account-status" class="quiet" aria-live="polite"></span>
+            </section>
+            <div class="submit-area"><p>پیش از ثبت، از صحت اطلاعات و تعلق حساب‌ها به خودتان مطمئن شوید.</p><button type="submit" id="submit-button" class="primary-button">ثبت نهایی اطلاعات <span>←</span></button><p id="submit-status" aria-live="polite" class="quiet">پس از ثبت، کد پیگیری دریافت خواهید کرد.</p></div>
+        </form>
+    </section>
+</div>
+@section Scripts { <script src="~/js/form.min.js" asp-append-version="true" defer></script> }
+
+

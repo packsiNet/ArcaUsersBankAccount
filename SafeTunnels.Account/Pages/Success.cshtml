@@ -1,0 +1,4 @@
+﻿@page
+@model SafeTunnels.Account.Pages.SuccessModel
+@{ ViewData["Title"] = "ثبت موفق"; }
+<section class="message-card"><span class="success-mark">✓</span><span class="eyebrow">ثبت تکمیل شد</span><h1>اطلاعات شما با موفقیت ثبت شد.</h1><p>کد پیگیری را برای مراجعه بعدی نزد خود نگه دارید.</p><div class="tracking-code" dir="ltr">@Model.TrackingCode</div><a href="/" class="secondary-button">بازگشت به صفحه اصلی</a></section>

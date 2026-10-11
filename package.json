@@ -1,0 +1,8 @@
+{
+  "name": "safetunnels-account-assets", "private": true,
+  "scripts": {
+    "build": "tailwindcss -i SafeTunnels.Account/Assets/site.css -o SafeTunnels.Account/wwwroot/css/site.min.css --minify && esbuild SafeTunnels.Account/Assets/form.js --minify --outfile=SafeTunnels.Account/wwwroot/js/form.min.js",
+    "test": "playwright test"
+  },
+  "devDependencies": { "@tailwindcss/cli": "4.1.18", "tailwindcss": "4.1.18", "esbuild": "0.25.12", "@playwright/test": "1.56.1", "pg": "8.16.3" }
+}

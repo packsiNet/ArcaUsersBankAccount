@@ -1,0 +1,26 @@
+[Unit]
+Description=SafeTunnels Account Portal
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+User=safetunnels
+Group=safetunnels
+WorkingDirectory=/opt/safetunnels/app
+ExecStart=/usr/bin/dotnet /opt/safetunnels/app/SafeTunnels.Account.dll
+EnvironmentFile=/etc/safetunnels/account.env
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/safetunnels
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
