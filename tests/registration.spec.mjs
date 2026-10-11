@@ -16,7 +16,8 @@ test.beforeAll(async()=>{
 test.afterAll(async()=>db.end());
 async function fill(page,count=1){
   await page.goto('/');
-  await page.locator('[name="Input.FirstName"]').fill('آزمایش '+(++seq));
+  const firstName='آزمایش '+Date.now()+'-'+(++seq);
+  await page.locator('[name="Input.FirstName"]').fill(firstName);
   await page.locator('[name="Input.LastName"]').fill('کاربر ساختگی');
   for(let i=0;i<count;i++){
     if(i)await page.locator('#add-account').click();
@@ -24,18 +25,21 @@ async function fill(page,count=1){
     await page.locator(`[name="Input.Accounts[${i}].OtherBankName"]`).fill('بانک آزمایشی');
     await page.locator(`[name="Input.Accounts[${i}].IBAN"]`).fill(iban);
   }
+  return firstName;
 }
 async function data(page){return page.locator('form').evaluate(f=>Object.fromEntries(new FormData(f)));}
 test('ثبت شبا، همراه خالی و حذف فیلدهای کارت و حساب',async({page})=>{
-  await fill(page);
+  const firstName=await fill(page);
   await expect(page.locator('[name*=CardNumber], [name*=AccountNumber]')).toHaveCount(0);
   await page.locator('#submit-button').click();
   await expect(page).toHaveURL(/\/Success$/);
   await expect(page.locator('h1')).toHaveText('اطلاعات شما با موفقیت ثبت شد.');
-  const code=await page.locator('.tracking-code').textContent();
-  expect(code).toMatch(/^[A-F0-9]{32}$/);
-  const result=await db.query('SELECT a."Mobile", b.* FROM "Applicants" a JOIN "BankAccounts" b ON b."ApplicantId"=a."Id" WHERE a."TrackingCode"=$1',[code]);
+  const result=await db.query('SELECT a."Mobile", a."TrackingCode", b.* FROM "Applicants" a JOIN "BankAccounts" b ON b."ApplicantId"=a."Id" WHERE a."FirstName"=$1',[firstName]);
   expect(result.rowCount).toBe(1);expect(result.rows[0].Mobile).toBeNull();
+  // The tracking code is still stored, but no longer shown to the applicant.
+  expect(result.rows[0].TrackingCode).toMatch(/^[A-F0-9]{32}$/);
+  await expect(page.locator('.tracking-code')).toHaveCount(0);
+  expect(await page.content()).not.toContain(result.rows[0].TrackingCode);
   expect(result.rows[0].IBAN).toMatch(/^v1:local1:/);
   expect(result.rows[0].BankName).toBe('بانک آزمایشی');
   expect(result.rows[0]).not.toHaveProperty('CardLastFour');
@@ -43,12 +47,11 @@ test('ثبت شبا، همراه خالی و حذف فیلدهای کارت و �
   expect(JSON.stringify(result.rows)).not.toContain(iban);
 });
 test('ثبت چند حساب و نرمال‌سازی ارقام فارسی',async({page})=>{
-  await fill(page,3);
+  const firstName=await fill(page,3);
   await page.locator('[name="Input.Mobile"]').fill('+۹۸۹۱۲۳۴۵۶۷۸۹');
   await page.locator('[name="Input.Accounts[0].IBAN"]').fill(iban.slice(2).replace(/\d/g,d=>'۰۱۲۳۴۵۶۷۸۹'[+d]));
   await page.locator('#submit-button').click();await expect(page).toHaveURL(/\/Success$/);
-  const code=await page.locator('.tracking-code').textContent();
-  const r=await db.query('SELECT "Mobile",(SELECT count(*) FROM "BankAccounts" b WHERE b."ApplicantId"=a."Id") AS count FROM "Applicants" a WHERE "TrackingCode"=$1',[code]);
+  const r=await db.query('SELECT "Mobile",(SELECT count(*) FROM "BankAccounts" b WHERE b."ApplicantId"=a."Id") AS count FROM "Applicants" a WHERE "FirstName"=$1',[firstName]);
   expect(r.rows[0].count).toBe('3');expect(r.rows[0].Mobile).toBe('09123456789');
 });
 for(const [field,value] of [['IBAN','IR00000000000000000000000000'],['Mobile','123']]){
@@ -109,12 +112,15 @@ test('خرابی ذخیره حساب کل تراکنش را rollback می‌کن
 });
 test('دسترسی مدیر، ماسک، خروجی CSV و خروج',async({page})=>{
  await page.goto('/admin');await expect(page).toHaveURL(/\/admin\/login/);
- await page.locator('[name="Email"]').fill(secrets.email);await page.locator('[name="Password"]').fill(secrets.password);
+ await expect(page.locator('[name="Email"]')).toHaveCount(0);await page.locator('[name="Password"]').fill(secrets.password);
  await page.locator('button[type=submit]').click();await expect(page).toHaveURL(/\/admin$/);
  const html=await page.content();expect(html).not.toContain(iban);
  const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی CSV ماسک‌شده'}).click();
  const download=await downloadPromise;const csv=fs.readFileSync(await download.path(),'utf8');
  expect(csv).not.toContain(iban);expect(csv).toContain('••••');expect(csv).not.toContain('CardMasked');expect(csv).not.toContain('AccountMasked');
+ const excelPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی اکسل ماسک‌شده'}).click();
+ const excel=await excelPromise;expect(excel.suggestedFilename()).toBe('accounts-masked.xlsx');
+ expect(fs.readFileSync(await excel.path()).subarray(0,2).toString()).toBe('PK');
  await page.getByRole('button',{name:'خروج',exact:true}).click();await page.goto('/admin');await expect(page).toHaveURL(/\/admin\/login/);
 });
 test('قفل حساب مدیر بعد از پنج رمز نادرست',async({page})=>{
