@@ -45,6 +45,7 @@ jobs:
           python3 -m unittest discover -s deploy/tests -v
       - name: Build and test
         run: |
+          node --check tools/setup-local.mjs
           npm ci
           npm run build
           node tools/setup-local.mjs
