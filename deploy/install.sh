@@ -21,8 +21,9 @@ systemctl enable --now postgresql nginx
 getent passwd safetunnels >/dev/null || useradd --system --user-group --home-dir /var/lib/safetunnels --shell /usr/sbin/nologin safetunnels
 install -d -m 700 /etc/safetunnels /var/backups/safetunnels
 install -d -o safetunnels -g safetunnels -m 700 /var/lib/safetunnels /var/lib/safetunnels/keys
-install -d -m 755 /opt/safetunnels/releases /var/www/letsencrypt
-eval "$(python3 "$bundle/deploy/server_config.py" "$config" /etc/safetunnels)"
+install -d -o root -g root -m 755 /opt/safetunnels /opt/safetunnels/releases /var/www/letsencrypt
+validated_config=$(python3 "$bundle/deploy/server_config.py" "$config" /etc/safetunnels)
+eval "$validated_config"
 : "${RELEASE:?Validated release is required}"
 release="/opt/safetunnels/releases/$RELEASE"
 [[ ! -e $release ]] || { echo 'Release identifier already exists; rerun the workflow for a new identifier.' >&2; exit 1; }
@@ -31,6 +32,14 @@ cp -a "$bundle/app/." "$release/"
 chown -R root:root "$release"
 chmod -R u=rwX,go=rX "$release"
 [[ -f $release/SafeTunnels.Account.dll ]] || { echo 'Application bundle is incomplete.' >&2; exit 1; }
+# Check directory traversal as the actual service user before systemd starts it.
+# The positional parameter is expanded by the service user's shell.
+# shellcheck disable=SC2016
+if ! runuser -u safetunnels -- /bin/sh -c 'cd "$1" && test -r SafeTunnels.Account.dll' sh "$release"; then
+    echo 'Service user cannot access the release working directory. Check the directory permissions below.' >&2
+    namei -l "$release/SafeTunnels.Account.dll" >&2
+    exit 1
+fi
 # Existing external PostgreSQL listeners are not silently reconfigured.
 listen=$(runuser -u postgres -- psql -XAt -v ON_ERROR_STOP=1 -c 'SHOW listen_addresses')
 [[ $listen == localhost || $listen == 127.0.0.1 ]] || { echo 'PostgreSQL must listen only on loopback.' >&2; exit 1; }
@@ -98,10 +107,20 @@ restore_app() {
 }
 trap restore_app ERR
 # systemd reads the root-only environment file, then runs the app unprivileged.
-systemd-run --quiet --wait --collect --unit="safetunnels-migrate-${RELEASE}" \
+if systemd-run --wait --collect --unit="safetunnels-migrate-${RELEASE}" \
     -p User=safetunnels -p Group=safetunnels -p "WorkingDirectory=$release" \
     -p EnvironmentFile=/etc/safetunnels/migration.env \
-    /usr/bin/dotnet "$release/SafeTunnels.Account.dll" --migrate --ensure-admin
+    /usr/bin/dotnet "$release/SafeTunnels.Account.dll" --migrate --ensure-admin; then
+    :
+else
+    migration_status=$?
+    printf 'Migration unit failed (exit %s). Inspect on the server: journalctl -u safetunnels-migrate-%s --no-pager\n' "$migration_status" "$RELEASE" >&2
+    if [[ $migration_status == 200 ]]; then
+        echo 'systemd EXIT_CHDIR: the service could not enter its WorkingDirectory.' >&2
+        namei -l "$release/SafeTunnels.Account.dll" >&2
+    fi
+    (exit "$migration_status")
+fi
 runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d safetunnels >"$sql_log" 2>&1 <<'SQL'
 GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO safetunnels_runtime;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO safetunnels_runtime;
