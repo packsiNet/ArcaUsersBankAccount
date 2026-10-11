@@ -80,10 +80,11 @@ restore_app() {
     trap - ERR
     if [[ $had_site == true ]]; then
         cp -a "$old_site" "$site"
-        nginx -t && systemctl reload nginx || true
     else
         rm -f /etc/nginx/sites-enabled/safetunnels-account "$site"
-        nginx -t && systemctl reload nginx || true
+    fi
+    if nginx -t; then
+        systemctl reload nginx || true
     fi
     if [[ $activated == true && -n $previous && -d $previous ]]; then
         rm -f /opt/safetunnels/.rollback
