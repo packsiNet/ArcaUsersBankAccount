@@ -5,17 +5,21 @@ import zlib from 'node:zlib';
 const secrets=JSON.parse(fs.readFileSync('.local/test-settings.json'));
 const db=new pg.Client({connectionString:process.env.TEST_DATABASE_URL??'postgresql://postgres@127.0.0.1:55432/safetunnels_test'});
 // Synthetic checksum-valid values, not customer banking data.
-const bban='9990000000000000000000';
 const mod97=s=>[...s].reduce((r,c)=>(r*10+Number(c))%97,0);
-const iban='IR'+String(98-mod97(bban+'182700')).padStart(2,'0')+bban;
-let seq=0;
+// IBANs must be unique across registrations, so every account gets a fresh one.
+function newIban(){
+  const bban='999'+Array.from({length:19},()=>Math.floor(Math.random()*10)).join('');
+  return 'IR'+String(98-mod97(bban+'182700')).padStart(2,'0')+bban;
+}
+let seq=0,iban=newIban(); // iban: first account of the most recent fill()
 test.beforeAll(async()=>{
   await db.connect();
   const name=(await db.query('SELECT current_database() AS name')).rows[0].name;
   if(name!=='safetunnels_test')throw Error('Tests require the dedicated safetunnels_test database.');
 });
 test.afterAll(async()=>db.end());
-async function fill(page,count=1){
+async function fill(page,count=1,ibans=[]){
+  ibans=Array.from({length:count},(_,i)=>ibans[i]??newIban());iban=ibans[0];
   await page.goto('/');
   const firstName='آزمایش '+Date.now()+'-'+(++seq);
   await page.locator('[name="Input.FirstName"]').fill(firstName);
@@ -24,7 +28,7 @@ async function fill(page,count=1){
     if(i)await page.locator('#add-account').click();
     await page.locator(`[name="Input.Accounts[${i}].BankName"]`).selectOption('سایر بانک‌ها');
     await page.locator(`[name="Input.Accounts[${i}].OtherBankName"]`).fill('بانک آزمایشی');
-    await page.locator(`[name="Input.Accounts[${i}].IBAN"]`).fill(iban);
+    await page.locator(`[name="Input.Accounts[${i}].IBAN"]`).fill(ibans[i]);
   }
   return firstName;
 }
@@ -116,7 +120,39 @@ test('خرابی ذخیره حساب کل تراکنش را rollback می‌کن
   expect(+(await db.query('SELECT count(*) FROM "Applicants"')).rows[0].count).toBe(before);
  }finally{await db.query('DROP TRIGGER test_rollback ON "BankAccounts"; DROP FUNCTION test_reject_account();');}
 });
+const applicants=async()=>+(await db.query('SELECT count(*) FROM "Applicants"')).rows[0].count;
+const accountsOf=async firstName=>+(await db.query('SELECT count(*) FROM "BankAccounts" b JOIN "Applicants" a ON a."Id"=b."ApplicantId" WHERE a."FirstName"=$1',[firstName])).rows[0].count;
+test('شبای تکراری رد می‌شود و پیغام تکراری می‌دهد',async({page})=>{
+ await fill(page);const registered=iban;await page.locator('#submit-button').click();await expect(page).toHaveURL(/\/Success$/);
+ const before=await applicants();
+ await fill(page,1,[registered]);await page.locator('#submit-button').click();
+ await expect(page.locator('.error-summary')).toContainText('تکراری');
+ await expect(page.locator('[data-valmsg-for="Input.Accounts[0].IBAN"]')).toContainText('قبلاً ثبت شده است');
+ expect(await applicants()).toBe(before);
+});
+test('شبای تکراری در یک فرم رد می‌شود',async({page})=>{
+ const before=await applicants();const same=newIban();
+ await fill(page,2,[same,same]);await page.locator('#submit-button').click();
+ await expect(page.locator('[data-valmsg-for="Input.Accounts[1].IBAN"]')).toContainText('تکراری');
+ expect(await applicants()).toBe(before);
+});
+test('ثبت دوباره با شبای قبلی و شبای جدید، حساب جدید را به همان فرد اضافه می‌کند',async({page})=>{
+ const firstName=await fill(page);const registered=iban;await page.locator('#submit-button').click();await expect(page).toHaveURL(/\/Success$/);
+ const before=await applicants();
+ await fill(page,2,[registered]);await page.locator('[name="Input.FirstName"]').fill(firstName);
+ await page.locator('[name="Input.Mobile"]').fill('09120000000');
+ await page.locator('#submit-button').click();await expect(page).toHaveURL(/\/Success$/);
+ expect(await applicants()).toBe(before);expect(await accountsOf(firstName)).toBe(2);
+ expect((await db.query('SELECT "Mobile" FROM "Applicants" WHERE "FirstName"=$1',[firstName])).rows[0].Mobile).toBe('09120000000');
+ // The same known IBAN under another name is not merged into the first person's record.
+ await fill(page,2,[registered]);await page.locator('#submit-button').click();
+ await expect(page.locator('[data-valmsg-for="Input.Accounts[0].IBAN"]')).toContainText('قبلاً ثبت شده است');
+ expect(await applicants()).toBe(before);expect(await accountsOf(firstName)).toBe(2);
+});
 test('دسترسی مدیر، ماسک، خروجی CSV و خروج',async({page})=>{
+ const second=newIban(),firstName=await fill(page,2,[undefined,second]);
+ await page.locator('[name="Input.Mobile"]').fill('09123456789');
+ await page.locator('#submit-button').click();await expect(page).toHaveURL(/\/Success$/);
  await page.goto('/admin');await expect(page).toHaveURL(/\/admin\/login/);
  await expect(page.locator('[name="Email"]')).toHaveCount(0);await page.locator('[name="Password"]').fill(secrets.password);
  await page.locator('button[type=submit]').click();await expect(page).toHaveURL(/\/admin$/);
@@ -130,7 +166,11 @@ test('دسترسی مدیر، ماسک، خروجی CSV و خروج',async({page
  const fullPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی اکسل کامل'}).click();
  const full=await fullPromise;expect(full.suggestedFilename()).toBe('accounts-full.xlsx');
  const sheet=sheetXml(fs.readFileSync(await full.path()));
- for(const text of ['نام و نام خانوادگی','شماره همراه','شماره شبا','کاربر ساختگی','09123456789',iban])expect(sheet).toContain(text);
+ for(const text of ['نام و نام خانوادگی','شماره همراه','نام بانک اول','شماره شبا اول','نام بانک دوم','شماره شبا دوم'])expect(sheet).toContain(text);
+ // One row per person: name, mobile, then a bank/IBAN pair for each account.
+ const rows=sheet.split('<row>').filter(r=>r.includes(firstName));expect(rows).toHaveLength(1);
+ const cells=[...rows[0].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map(m=>m[1]);
+ expect(cells).toEqual([firstName+' کاربر ساختگی','09123456789','بانک آزمایشی',iban,'بانک آزمایشی',second]);
  expect(sheet).not.toContain('••••');
  await page.getByRole('button',{name:'خروج',exact:true}).click();await page.goto('/admin');await expect(page).toHaveURL(/\/admin\/login/);
 });

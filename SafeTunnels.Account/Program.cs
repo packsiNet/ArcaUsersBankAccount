@@ -64,7 +64,11 @@ if (args.Contains("--migrate") || args.Contains("--create-admin") || args.Contai
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    if (args.Contains("--migrate")) await db.Database.MigrateAsync();
+    if (args.Contains("--migrate")) {
+        await db.Database.MigrateAsync();
+        var fingerprinted = await scope.ServiceProvider.GetRequiredService<ApplicantService>().BackfillFingerprintsAsync(CancellationToken.None);
+        if (fingerprinted > 0) Console.WriteLine($"Fingerprinted {fingerprinted} existing bank accounts.");
+    }
     if (args.Contains("--create-admin") || args.Contains("--ensure-admin")) {
         var email = builder.Configuration["Bootstrap:Email"] ?? throw new InvalidOperationException("Bootstrap email is required.");
         var password = builder.Configuration["Bootstrap:Password"] ?? throw new InvalidOperationException("Bootstrap password is required.");

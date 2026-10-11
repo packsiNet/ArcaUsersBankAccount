@@ -290,9 +290,16 @@ namespace SafeTunnels.Account.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("IbanHash")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ApplicantId");
+
+                    b.HasIndex("IbanHash")
+                        .IsUnique();
 
                     b.ToTable("BankAccounts");
                 });

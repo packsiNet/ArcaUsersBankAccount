@@ -67,11 +67,17 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
     {
         // Unmasked report for administrators: full name, mobile and the complete decrypted IBAN.
         var applicants = await Query().Include(x => x.BankAccounts).OrderBy(x => x.CreatedAt).Take(10000).ToListAsync(ct);
-        var rows = applicants.SelectMany(a => a.BankAccounts.Select(b => new[] { a.FirstName + " " + a.LastName, a.Mobile ?? "", encryption.Decrypt(b.IBAN, EncryptionService.Purpose(b.Id, "iban")) })).ToList();
+        // One row per person; each of their accounts adds a bank-name/IBAN column pair.
+        var rows = applicants.Select(a => new[] { a.FirstName + " " + a.LastName, a.Mobile ?? "" }
+            .Concat(a.BankAccounts.OrderBy(b => b.CreatedAt).SelectMany(b => new[] { b.BankName, encryption.Decrypt(b.IBAN, EncryptionService.Purpose(b.Id, "iban")) })).ToArray()).ToList();
+        var header = new[] { "نام و نام خانوادگی", "شماره همراه" }
+            .Concat(Enumerable.Range(0, rows.Count == 0 ? 1 : Math.Max(1, rows.Max(r => (r.Length - 2) / 2))).SelectMany(i => new[] { "نام بانک " + Ordinal(i), "شماره شبا " + Ordinal(i) })).ToArray();
         logger.LogWarning("Unmasked account export of {Count} rows by {Admin}", rows.Count, User.Identity?.Name);
         Response.Headers.CacheControl = "no-store";
-        return Xlsx(rows.Prepend(["نام و نام خانوادگی", "شماره همراه", "شماره شبا"]), rightToLeft: true, "accounts-full.xlsx");
+        return Xlsx(rows.Prepend(header), rightToLeft: true, "accounts-full.xlsx");
     }
+    private static readonly string[] Ordinals = ["اول", "دوم", "سوم", "چهارم", "پنجم", "ششم", "هفتم", "هشتم", "نهم", "دهم"];
+    private static string Ordinal(int index) => index < Ordinals.Length ? Ordinals[index] : (index + 1).ToString();
     private FileContentResult Xlsx(IEnumerable<string[]> rows, bool rightToLeft, string fileName)
     {
         // Minimal single-sheet workbook; every cell is an inline string, so nothing is evaluated as a formula.

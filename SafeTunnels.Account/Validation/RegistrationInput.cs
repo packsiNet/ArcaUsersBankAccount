@@ -20,6 +20,8 @@ public sealed class RegistrationInput : IValidatableObject
         if (string.IsNullOrWhiteSpace(LastName) || LastName.Length > 100) yield return new("نام خانوادگی الزامی است و باید حداکثر ۱۰۰ نویسه باشد.", [nameof(LastName)]);
         if (Mobile is not null && !Regex.IsMatch(Mobile, @"^09[0-9]{9}$")) yield return new("شماره همراه معتبر وارد کنید.", [nameof(Mobile)]);
         if (Accounts.Count is < 1 or > 10) yield return new("ثبت یک تا ده حساب بانکی الزامی است.", [nameof(Accounts)]);
+        for (var i = 1; i < Accounts.Count; i++)
+            if (Accounts[i].IBAN.Length > 2 && Accounts.Take(i).Any(a => a.IBAN == Accounts[i].IBAN)) yield return new("این شماره شبا در همین فرم تکراری است.", [$"{nameof(Accounts)}[{i}].{nameof(BankInput.IBAN)}"]);
     }
 }
 public sealed class BankInput : IValidatableObject

@@ -34,6 +34,16 @@ public sealed class EncryptionService
             return Encoding.UTF8.GetString(plain);
         } finally { CryptographicOperations.ZeroMemory(plain); }
     }
+    // Deterministic keyed fingerprint: lets an IBAN be matched without decrypting every stored row.
+    public string Fingerprint(string value) => Fingerprint(active, value);
+    // One candidate per configured key, so rows written before a key rotation still match.
+    public List<string> Fingerprints(string value) => keys.Keys.Select(id => Fingerprint(id, value)).ToList();
+    private string Fingerprint(string id, string value)
+    {
+        var key = HKDF.DeriveKey(HashAlgorithmName.SHA256, keys[id], 32, info: "SafeTunnels:iban-index"u8.ToArray());
+        try { return $"{id}:{Convert.ToHexString(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(value)))}"; }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
     public static string Purpose(Guid account, string field) => $"SafeTunnels:{account:N}:{field}";
     public static string Mask(string value) => "•••• " + (value.Length > 4 ? value[^Math.Min(4, value.Length)..] : "••••");
 }

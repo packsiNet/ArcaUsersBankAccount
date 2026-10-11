@@ -22,6 +22,10 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             e.Property(x => x.Mobile).HasMaxLength(11);
             e.HasMany(x => x.BankAccounts).WithOne(x => x.Applicant).HasForeignKey(x => x.ApplicantId).OnDelete(DeleteBehavior.Cascade);
         });
-        b.Entity<BankAccount>().Property(x => x.BankName).HasMaxLength(100);
+        b.Entity<BankAccount>(e => {
+            e.Property(x => x.BankName).HasMaxLength(100);
+            e.Property(x => x.IbanHash).HasMaxLength(100);
+            e.HasIndex(x => x.IbanHash).IsUnique();
+        });
     }
 }
