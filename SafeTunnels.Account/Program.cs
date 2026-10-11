@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -60,17 +60,20 @@ builder.Services.AddScoped<ApplicantService>();
 builder.Services.AddResponseCompression(o => o.EnableForHttps = false);
 builder.Services.AddHttpsRedirection(o => o.HttpsPort = 443);
 var app = builder.Build();
-if (args.Contains("--migrate") || args.Contains("--create-admin"))
+if (args.Contains("--migrate") || args.Contains("--create-admin") || args.Contains("--ensure-admin"))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     if (args.Contains("--migrate")) await db.Database.MigrateAsync();
-    if (args.Contains("--create-admin")) {
+    if (args.Contains("--create-admin") || args.Contains("--ensure-admin")) {
         var email = builder.Configuration["Bootstrap:Email"] ?? throw new InvalidOperationException("Bootstrap email is required.");
         var password = builder.Configuration["Bootstrap:Password"] ?? throw new InvalidOperationException("Bootstrap password is required.");
         var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
         var roles = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        if (await users.FindByEmailAsync(email) is not null) throw new InvalidOperationException("Administrator already exists.");
+        if (await users.FindByEmailAsync(email) is not null) {
+            if (args.Contains("--ensure-admin")) { Console.WriteLine("Administrator already exists; credentials preserved."); return; }
+            throw new InvalidOperationException("Administrator already exists.");
+        }
         if (!await roles.RoleExistsAsync("Admin")) {
             var roleResult = await roles.CreateAsync(new IdentityRole("Admin"));
             if (!roleResult.Succeeded) throw new InvalidOperationException("Cannot create administrator role.");
@@ -114,6 +117,14 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
+app.MapGet("/health/ready", async (ApplicationDbContext db, HttpContext context) => {
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+    timeout.CancelAfter(TimeSpan.FromSeconds(3));
+    try {
+        await db.Applicants.Select(a => a.Id).Take(1).ToArrayAsync(timeout.Token);
+        return Results.Text("ready");
+    } catch { return Results.StatusCode(503); }
+}).AllowAnonymous();
 app.MapRazorPages();
 app.Run();
 

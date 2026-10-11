@@ -1,0 +1,8 @@
+[Unit]
+Description=Encrypted SafeTunnels database and key backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/safetunnels-backup
+UMask=0077
