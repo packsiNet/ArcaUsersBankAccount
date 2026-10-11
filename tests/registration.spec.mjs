@@ -160,9 +160,14 @@ test('دسترسی مدیر، ماسک، خروجی CSV و خروج',async({page
  const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی CSV ماسک‌شده'}).click();
  const download=await downloadPromise;const csv=fs.readFileSync(await download.path(),'utf8');
  expect(csv).not.toContain(iban);expect(csv).toContain('••••');expect(csv).not.toContain('CardMasked');expect(csv).not.toContain('AccountMasked');
+ const masked=[firstName+' کاربر ساختگی','09123456789','بانک آزمایشی','•••• '+iban.slice(-4),'بانک آزمایشی','•••• '+second.slice(-4)];
+ expect(csv).toContain('"نام و نام خانوادگی","شماره همراه","نام بانک اول","شماره شبا اول","نام بانک دوم","شماره شبا دوم"');
+ expect(csv.split(/\r?\n/).filter(l=>l.includes(firstName))).toHaveLength(1);expect(csv).toContain(masked.map(c=>`"${c}"`).join(','));
  const excelPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی اکسل ماسک‌شده'}).click();
  const excel=await excelPromise;expect(excel.suggestedFilename()).toBe('accounts-masked.xlsx');
- expect(fs.readFileSync(await excel.path()).subarray(0,2).toString()).toBe('PK');
+ const maskedSheet=sheetXml(fs.readFileSync(await excel.path()));expect(maskedSheet).not.toContain(iban);expect(maskedSheet).not.toContain(second);
+ const maskedRows=maskedSheet.split('<row>').filter(r=>r.includes(firstName));expect(maskedRows).toHaveLength(1);
+ expect([...maskedRows[0].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map(m=>m[1])).toEqual(masked);
  const fullPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی اکسل کامل'}).click();
  const full=await fullPromise;expect(full.suggestedFilename()).toBe('accounts-full.xlsx');
  const sheet=sheetXml(fs.readFileSync(await full.path()));
