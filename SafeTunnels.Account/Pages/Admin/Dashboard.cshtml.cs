@@ -11,7 +11,7 @@ using SafeTunnels.Account.Models;
 using SafeTunnels.Account.Services;
 using SafeTunnels.Account.Validation;
 namespace SafeTunnels.Account.Pages.Admin;
-public sealed class DashboardModel(ApplicationDbContext db, EncryptionService encryption, SignInManager<IdentityUser> signIn) : PageModel
+public sealed class DashboardModel(ApplicationDbContext db, EncryptionService encryption, SignInManager<IdentityUser> signIn, ILogger<DashboardModel> logger) : PageModel
 {
     [BindProperty(SupportsGet = true)] public string? Search { get; set; }
     [BindProperty(SupportsGet = true)] public int PageNumber { get; set; } = 1;
@@ -61,11 +61,24 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
         foreach (var row in await ExportRowsAsync(ct)) csv.AppendLine(string.Join(",", row.Select(CsvCell)));
         return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray(), "text/csv; charset=utf-8", "accounts-masked.csv");
     }
-    public async Task<IActionResult> OnPostExportExcelAsync(CancellationToken ct)
+    public async Task<IActionResult> OnPostExportExcelAsync(CancellationToken ct) =>
+        Xlsx((await ExportRowsAsync(ct)).Prepend(ExportHeader), rightToLeft: false, "accounts-masked.xlsx");
+    public async Task<IActionResult> OnPostExportFullExcelAsync(CancellationToken ct)
+    {
+        // Unmasked report for administrators: full name, mobile and the complete decrypted IBAN.
+        var applicants = await Query().Include(x => x.BankAccounts).OrderBy(x => x.CreatedAt).Take(10000).ToListAsync(ct);
+        var rows = applicants.SelectMany(a => a.BankAccounts.Select(b => new[] { a.FirstName + " " + a.LastName, a.Mobile ?? "", encryption.Decrypt(b.IBAN, EncryptionService.Purpose(b.Id, "iban")) })).ToList();
+        logger.LogWarning("Unmasked account export of {Count} rows by {Admin}", rows.Count, User.Identity?.Name);
+        Response.Headers.CacheControl = "no-store";
+        return Xlsx(rows.Prepend(["نام و نام خانوادگی", "شماره همراه", "شماره شبا"]), rightToLeft: true, "accounts-full.xlsx");
+    }
+    private FileContentResult Xlsx(IEnumerable<string[]> rows, bool rightToLeft, string fileName)
     {
         // Minimal single-sheet workbook; every cell is an inline string, so nothing is evaluated as a formula.
-        var sheet = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
-        foreach (var row in (await ExportRowsAsync(ct)).Prepend(ExportHeader))
+        var sheet = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">");
+        if (rightToLeft) sheet.Append("<sheetViews><sheetView rightToLeft=\"1\" workbookViewId=\"0\"/></sheetViews>");
+        sheet.Append("<sheetData>");
+        foreach (var row in rows)
             sheet.Append("<row>").AppendJoin("", row.Select(XlsxCell)).Append("</row>");
         sheet.Append("</sheetData></worksheet>");
         using var stream = new MemoryStream();
@@ -78,7 +91,7 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
             Add("xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>");
             Add("xl/worksheets/sheet1.xml", sheet.ToString());
         }
-        return File(stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "accounts-masked.xlsx");
+        return File(stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
     public static string XlsxCell(string s) =>
         "<c t=\"inlineStr\"><is><t xml:space=\"preserve\">" + SecurityElement.Escape(new string(s.Where(XmlConvert.IsXmlChar).ToArray())) + "</t></is></c>";

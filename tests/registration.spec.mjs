@@ -1,6 +1,7 @@
 ﻿import { test, expect } from '@playwright/test';
 import pg from 'pg';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 const secrets=JSON.parse(fs.readFileSync('.local/test-settings.json'));
 const db=new pg.Client({connectionString:process.env.TEST_DATABASE_URL??'postgresql://postgres@127.0.0.1:55432/safetunnels_test'});
 // Synthetic checksum-valid values, not customer banking data.
@@ -26,6 +27,11 @@ async function fill(page,count=1){
     await page.locator(`[name="Input.Accounts[${i}].IBAN"]`).fill(iban);
   }
   return firstName;
+}
+// Reads the worksheet out of a downloaded .xlsx (a zip) via its local file header.
+function sheetXml(zip){
+  const at=zip.indexOf('xl/worksheets/sheet1.xml')-30,start=at+30+zip.readUInt16LE(at+26)+zip.readUInt16LE(at+28);
+  return zlib.inflateRawSync(zip.subarray(start,start+zip.readUInt32LE(at+18))).toString('utf8');
 }
 async function data(page){return page.locator('form').evaluate(f=>Object.fromEntries(new FormData(f)));}
 test('ثبت شبا، همراه خالی و حذف فیلدهای کارت و حساب',async({page})=>{
@@ -121,6 +127,11 @@ test('دسترسی مدیر، ماسک، خروجی CSV و خروج',async({page
  const excelPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی اکسل ماسک‌شده'}).click();
  const excel=await excelPromise;expect(excel.suggestedFilename()).toBe('accounts-masked.xlsx');
  expect(fs.readFileSync(await excel.path()).subarray(0,2).toString()).toBe('PK');
+ const fullPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی اکسل کامل'}).click();
+ const full=await fullPromise;expect(full.suggestedFilename()).toBe('accounts-full.xlsx');
+ const sheet=sheetXml(fs.readFileSync(await full.path()));
+ for(const text of ['نام و نام خانوادگی','شماره همراه','شماره شبا','کاربر ساختگی','09123456789',iban])expect(sheet).toContain(text);
+ expect(sheet).not.toContain('••••');
  await page.getByRole('button',{name:'خروج',exact:true}).click();await page.goto('/admin');await expect(page).toHaveURL(/\/admin\/login/);
 });
 test('قفل حساب مدیر بعد از پنج رمز نادرست',async({page})=>{
