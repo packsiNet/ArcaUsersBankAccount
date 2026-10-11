@@ -21,6 +21,33 @@ Without `SERVER_KNOWN_HOSTS`, each run discovers and trusts the observed host ke
 
 If you configure GitHub environment protection on `production`, those rules apply before deployment. The workflow itself introduces no manual approval gate.
 
+## SSH authentication troubleshooting
+
+`Permission denied (publickey,password)` means authentication failed before any installer ran. A parsed private key does not prove that the destination authorizes it. Verify SERVER_HOST, SERVER_USER and that SERVER_SSH_KEY contains the complete matching private key. The workflow prints the public key's SHA256 fingerprint for comparison.
+
+On your own computer, using the same private-key file whose contents are stored in GitHub:
+
+```bash
+ssh-keygen -y -f /PATH/TO/PRIVATE_KEY
+ssh-keygen -lf /PATH/TO/PRIVATE_KEY -E sha256
+ssh -i /PATH/TO/PRIVATE_KEY -o IdentitiesOnly=yes root@account.zanatech.online
+```
+
+Using the provider's console on the server, for SERVER_USER=root:
+
+```bash
+install -d -m 700 -o root -g root /root/.ssh
+touch /root/.ssh/authorized_keys
+chown root:root /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+# Append the matching PUBLIC key as one line; preserve existing keys.
+nano /root/.ssh/authorized_keys
+ssh-keygen -lf /root/.ssh/authorized_keys -E sha256
+journalctl -u ssh --since '15 minutes ago' --no-pager
+```
+
+Do not put the private key on the server. Public-key login must be enabled, and root login permitted by the effective sshd policy, including Match blocks. If root login is intentionally disabled, use an authorized non-root account with passwordless sudo and set SERVER_USER accordingly. Changing Nginx, Certbot or SERVER_KNOWN_HOSTS does not resolve a rejected user key.
+
 ## DNS and network prerequisites
 
 Point the domain's A record to this server. If an AAAA record exists, it must also reach this server over IPv6; remove an incorrect AAAA record. HTTP port 80 must be publicly reachable for ACME issuance/renewal, and HTTPS 443 for the site. Provider firewalls/security groups must permit them; the installer manages only Ubuntu UFW. Disable forced CDN/proxy redirects that prevent ACME webroot verification during initial setup. Do not configure another Nginx site with the same server_name.

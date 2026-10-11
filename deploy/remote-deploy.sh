@@ -18,7 +18,9 @@ trap cleanup EXIT
 printf '%s\n' "$SERVER_SSH_KEY" | tr -d '\r' > "$work/key"
 unset SERVER_SSH_KEY
 chmod 600 "$work/key"
-ssh-keygen -y -f "$work/key" > /dev/null
+ssh-keygen -y -f "$work/key" > "$work/key.pub"
+printf 'Deployment SSH public-key fingerprint: '
+ssh-keygen -lf "$work/key.pub" -E sha256
 if [[ -n ${SERVER_KNOWN_HOSTS:-} ]]; then
     printf '%s\n' "$SERVER_KNOWN_HOSTS" > "$work/known_hosts"
 else
@@ -38,7 +40,22 @@ validate(c)
 with open(sys.argv[1],'w') as f: json.dump(c,f)
 PY
 (cd artifacts && sha256sum --check release.tar.gz.sha256)
-remote=$(ssh "${ssh_options[@]}" "$target" 'umask 077; mktemp -d /tmp/safetunnels-deploy.XXXXXXXX')
+if remote=$(ssh "${ssh_options[@]}" "$target" 'umask 077; mktemp -d /tmp/safetunnels-deploy.XXXXXXXX'); then
+    :
+else
+    ssh_status=$?
+    remote=''
+    cat >&2 <<'MESSAGE'
+SSH connection failed before installation. If the server reports Permission denied:
+- SERVER_SSH_KEY must contain the complete private key, not a public key or filename.
+- Its matching public key must be authorized for SERVER_USER on SERVER_HOST.
+- Compare the public-key fingerprint above against authorized_keys on the server.
+- For root, check /root/.ssh (0700), authorized_keys (0600), root ownership and SSH login policy.
+- Inspect the server's ssh journal through the provider console. Never publish private keys.
+See deploy/DEPLOYMENT.md, SSH authentication troubleshooting.
+MESSAGE
+    exit "$ssh_status"
+fi
 [[ $remote =~ ^/tmp/safetunnels-deploy\.[a-zA-Z0-9]{8}$ ]] || { echo 'Unexpected remote temporary path.' >&2; remote=''; exit 1; }
 scp -i "$work/key" -P "$SERVER_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
     -o "UserKnownHostsFile=$work/known_hosts" artifacts/release.tar.gz artifacts/release.tar.gz.sha256 \
