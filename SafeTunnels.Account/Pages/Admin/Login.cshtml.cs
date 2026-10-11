@@ -3,15 +3,20 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 namespace SafeTunnels.Account.Pages.Admin;
-public sealed class LoginModel(SignInManager<IdentityUser> signIn, UserManager<IdentityUser> users) : PageModel
+public sealed class LoginModel(SignInManager<IdentityUser> signIn, UserManager<IdentityUser> users, IConfiguration configuration) : PageModel
 {
-    [BindProperty, Required, EmailAddress, StringLength(254)] public string Email { get; set; } = "";
     [BindProperty, Required, StringLength(256), DataType(DataType.Password)] public string Password { get; set; } = "";
     public IActionResult OnGet() => User.IsInRole("Admin") ? RedirectToPage("/Admin/Dashboard") : Page();
     public async Task<IActionResult> OnPostAsync()
     {
         if (!ModelState.IsValid) { Password = ""; ModelState.Remove(nameof(Password)); return Page(); }
-        var user = await users.FindByEmailAsync(Email.Trim());
+        var email = configuration["Administration:LoginEmail"];
+        IdentityUser? user;
+        if (!string.IsNullOrWhiteSpace(email)) user = await users.FindByEmailAsync(email.Trim());
+        else {
+            var administrators = await users.GetUsersInRoleAsync("Admin");
+            user = administrators.Count == 1 ? administrators[0] : null;
+        }
         if (user is not null && await users.IsInRoleAsync(user, "Admin")) {
             var result = await signIn.PasswordSignInAsync(user, Password, false, lockoutOnFailure: true);
             if (result.Succeeded) return RedirectToPage("/Admin/Dashboard");

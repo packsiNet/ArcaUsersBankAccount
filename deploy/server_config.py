@@ -61,6 +61,7 @@ def prepare(config, directory):
         private_write(state_path, json.dumps(state, indent=2) + '\n')
     common = 'ASPNETCORE_ENVIRONMENT=Production\nASPNETCORE_URLS=http://127.0.0.1:5080\n'
     common += f'AllowedHosts={config["domain"]}\nDataProtection__KeyPath=/var/lib/safetunnels/keys\n'
+    common += f'Administration__LoginEmail={state["admin_email"]}\n'
     common += f'Encryption__ActiveKeyId=server1\nEncryption__Keys__server1={state["encryption_key"]}\n'
     def connection(user, password):
         return f'ConnectionStrings__DefaultConnection="Host=127.0.0.1;Port=5432;Database=safetunnels;Username={user};Password={password};Maximum Pool Size=80;Include Error Detail=false;Log Parameters=false"\n'

@@ -16,6 +16,8 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
     public int Accounts { get; private set; }
     public DateTime? LastRegistration { get; private set; }
     public int TotalPages { get; private set; }
+    public int FilteredPeople { get; private set; }
+    public const int PageSize = 25;
     public List<Applicant> Applicants { get; private set; } = [];
     private IQueryable<Applicant> Query()
     {
@@ -25,7 +27,7 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
         Search = s;
         if (s.Length > 0) {
             var mobile = BankingValidation.Mobile(s);
-            q = q.Where(x => x.FirstName.Contains(s) || x.LastName.Contains(s) || (x.Mobile != null && x.Mobile.Contains(mobile!)));
+            q = q.Where(x => (x.FirstName + " " + x.LastName).Contains(s) || (x.Mobile != null && mobile != null && x.Mobile.Contains(mobile)));
         }
         return q;
     }
@@ -35,9 +37,10 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
         Accounts = await db.BankAccounts.CountAsync(ct);
         LastRegistration = await db.Applicants.MaxAsync(x => (DateTime?)x.CreatedAt, ct);
         var q = Query();
-        TotalPages = Math.Max(1, (int)Math.Ceiling(await q.CountAsync(ct) / 25.0));
+        FilteredPeople = await q.CountAsync(ct);
+        TotalPages = Math.Max(1, (int)Math.Ceiling(FilteredPeople / (double)PageSize));
         PageNumber = Math.Clamp(PageNumber, 1, TotalPages);
-        Applicants = await q.Include(x => x.BankAccounts).OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Skip((PageNumber - 1) * 25).Take(25).ToListAsync(ct);
+        Applicants = await q.Include(x => x.BankAccounts).OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Skip((PageNumber - 1) * PageSize).Take(PageSize).ToListAsync(ct);
     }
     public string Mask(BankAccount bank) => EncryptionService.Mask(
         encryption.Decrypt(bank.IBAN, EncryptionService.Purpose(bank.Id, "iban")));
