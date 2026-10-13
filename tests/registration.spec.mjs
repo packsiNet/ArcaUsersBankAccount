@@ -157,8 +157,13 @@ test('دسترسی مدیر، ماسک، خروجی CSV و خروج',async({page
  await expect(page.locator('[name="Email"]')).toHaveCount(0);await page.locator('[name="Password"]').fill(secrets.password);
  await page.locator('button[type=submit]').click();await expect(page).toHaveURL(/\/admin$/);
  const html=await page.content();expect(html).not.toContain(iban);
+ // Exports include every applicant, even when the active search has no matching rows.
+ await page.goto('/admin?PageNumber=2&Search='+encodeURIComponent('بدون نتیجه '+Date.now()));
+ await expect(page.locator('.empty-state')).toBeVisible();
+ const totalApplicants=+(await db.query('SELECT count(*) FROM "Applicants"')).rows[0].count;
  const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی CSV ماسک‌شده'}).click();
  const download=await downloadPromise;const csv=fs.readFileSync(await download.path(),'utf8');
+ expect(csv.split(/\r?\n/).filter(line=>line.length)).toHaveLength(totalApplicants+1);
  expect(csv).not.toContain(iban);expect(csv).toContain('••••');expect(csv).not.toContain('CardMasked');expect(csv).not.toContain('AccountMasked');
  const masked=[firstName+' کاربر ساختگی','09123456789','بانک آزمایشی','•••• '+iban.slice(-4),'استعلام نشده','بانک آزمایشی','•••• '+second.slice(-4),'استعلام نشده'];
  expect(csv).toContain('"نام و نام خانوادگی","شماره همراه","نام بانک اول","شماره شبا اول","وضعیت استعلام اول","نام بانک دوم","شماره شبا دوم","وضعیت استعلام دوم"');
@@ -166,11 +171,13 @@ test('دسترسی مدیر، ماسک، خروجی CSV و خروج',async({page
  const excelPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی اکسل ماسک‌شده'}).click();
  const excel=await excelPromise;expect(excel.suggestedFilename()).toBe('accounts-masked.xlsx');
  const maskedSheet=sheetXml(fs.readFileSync(await excel.path()));expect(maskedSheet).not.toContain(iban);expect(maskedSheet).not.toContain(second);
+ expect(maskedSheet.match(/<row>/g)).toHaveLength(totalApplicants+1);
  const maskedRows=maskedSheet.split('<row>').filter(r=>r.includes(firstName));expect(maskedRows).toHaveLength(1);
  expect([...maskedRows[0].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map(m=>m[1])).toEqual(masked);
  const fullPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی اکسل کامل'}).click();
  const full=await fullPromise;expect(full.suggestedFilename()).toBe('accounts-full.xlsx');
  const sheet=sheetXml(fs.readFileSync(await full.path()));
+ expect(sheet.match(/<row>/g)).toHaveLength(totalApplicants+1);
  for(const text of ['نام و نام خانوادگی','شماره همراه','نام بانک اول','شماره شبا اول','نام بانک دوم','شماره شبا دوم'])expect(sheet).toContain(text);
  // One row per person: name, mobile, then a bank/IBAN pair for each account.
  const rows=sheet.split('<row>').filter(r=>r.includes(firstName));expect(rows).toHaveLength(1);

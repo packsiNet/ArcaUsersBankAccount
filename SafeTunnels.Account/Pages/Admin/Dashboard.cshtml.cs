@@ -59,7 +59,8 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
     // One row per person: name, mobile, then bank, IBAN and inquiry status per account.
     private async Task<List<string[]>> ExportRowsAsync(bool masked, CancellationToken ct)
     {
-        var applicants = await Query().Include(x => x.BankAccounts).OrderBy(x => x.CreatedAt).Take(10000).ToListAsync(ct);
+        var applicants = await db.Applicants.AsNoTracking().Include(x => x.BankAccounts)
+            .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToListAsync(ct);
         var rows = applicants.Select(a => new[] { a.FirstName + " " + a.LastName, a.Mobile ?? "" }
             .Concat(a.BankAccounts.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).SelectMany(b => new[] { b.BankName, masked ? Mask(b) : encryption.Decrypt(b.IBAN, EncryptionService.Purpose(b.Id, "iban")), InquiryStatus(b) })).ToArray()).ToList();
         var header = new[] { "نام و نام خانوادگی", "شماره همراه" }
