@@ -7,5 +7,7 @@ public sealed class BankAccount
     public string BankName { get; set; } = "";
     public string IBAN { get; set; } = "";
     public string? IbanHash { get; set; }
+    public string? InquiryResult { get; set; }
+    public DateTime? InquiryCompletedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -57,9 +57,17 @@ builder.Services.AddRateLimiter(o => {
 });
 builder.Services.AddSingleton<EncryptionService>();
 builder.Services.AddScoped<ApplicantService>();
+builder.Services.AddScoped<StoredIbanInquiryService>();
+builder.Services.AddHttpClient<IbanInquiryService>(client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+    .RemoveAllLoggers();
 builder.Services.AddResponseCompression(o => o.EnableForHttps = false);
 builder.Services.AddHttpsRedirection(o => o.HttpsPort = 443);
 var app = builder.Build();
+if (args.Contains("--inquiry-storage-test")) {
+    await SafeTunnels.Account.Diagnostics.StoredInquiryTests.RunAsync(app.Services);
+    return;
+}
 if (args.Contains("--migrate") || args.Contains("--create-admin") || args.Contains("--ensure-admin"))
 {
     using var scope = app.Services.CreateScope();

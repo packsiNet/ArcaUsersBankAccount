@@ -16,6 +16,7 @@ public static class SelfTests
             ("IBAN checksum/prefix", () => { Assert(BankingValidation.ValidIban(BankingValidation.Iban("27" + "999" + new string('0',19)))); Assert(!BankingValidation.ValidIban("IR00000000000000000000000000")); }),
             ("Account count bounds", () => { var i = new RegistrationInput { FirstName="Test",LastName="Test",Accounts=[] };Assert(!Validator.TryValidateObject(i,new ValidationContext(i),[],true));i.Accounts=Enumerable.Range(0,11).Select(_=>new BankInput()).ToList();Assert(!Validator.TryValidateObject(i,new ValidationContext(i),[],true)); }),
             ("Authenticated encryption and key rotation", EncryptionTest),
+            ("IBAN inquiry contract, name comparison and failures", IbanInquiryTests.Run),
             ("CSV formula neutralization", () => Assert(Pages.Admin.DashboardModel.CsvCell(" =cmd").StartsWith("\"'"))),
             ("Short values are fully masked", () => { Assert(!EncryptionService.Mask("123").Contains("123")); })
         };

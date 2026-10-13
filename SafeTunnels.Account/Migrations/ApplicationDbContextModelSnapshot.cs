@@ -294,6 +294,12 @@ namespace SafeTunnels.Account.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<DateTime?>("InquiryCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("InquiryResult")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ApplicantId");
