@@ -20,6 +20,10 @@ internal static class IbanInquiryTests
         handler.Body = """{"success":true,"code":"200","data":{"name":"علي رضايي","bankName":"پارسیان","active":false}}""";
         var result = Call();
         Check(result.Success && result.NameMatches == true && result.Active == false && result.BankName == "پارسیان");
+        Check(!result.Correct && result.Status == "اطلاعات اشتباه");
+        Check(new IbanInquiryResult(true, "", NameMatches: true, Active: true).Status == "صحت اطلاعات");
+        Check(new IbanInquiryResult(true, "", NameMatches: false, Active: true).Status == "اطلاعات اشتباه");
+        Check(new IbanInquiryResult(false, "").Status == "استعلام نشده");
         Check(handler.Url == "https://s.api.ir/api/sw1/IbanInfo" && handler.Method == HttpMethod.Post
             && handler.Authorization == "Bearer test-token" && handler.RequestBody.Contains(iban));
         Check(Call("نام دیگر").NameMatches == false);

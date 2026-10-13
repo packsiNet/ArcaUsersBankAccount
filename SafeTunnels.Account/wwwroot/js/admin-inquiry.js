@@ -21,27 +21,21 @@ document.querySelectorAll('.inquiry-form').forEach(form => {
       const data = await response.json();
       complete = data.complete === true;
       correct = complete && data.accounts.length > 0 && data.accounts.every(account =>
-        account.result.success && account.result.nameMatches === true && account.result.active !== false);
+        account.result.correct === true);
       output.replaceChildren();
       for (const account of data.accounts) {
         const card = document.createElement('div');
-        const title = document.createElement('strong');
-        title.textContent = account.registeredBank;
-        card.append(title);
-        const iban = document.createElement('p');
-        const number = document.createElement('bdi');
-        number.textContent = account.iban;
-        iban.append('شبا: ', number);
-        card.append(iban);
         const addLine = text => { const p = document.createElement('p'); p.textContent = text; card.append(p); };
         const result = account.result;
         if (result.success) {
-          addLine(`صاحب شبا: ${result.ownerName}`);
-          addLine(`بانک: ${result.bankName || 'نامشخص'}`);
+          card.className = result.correct ? 'inquiry-correct' : 'inquiry-incorrect';
+          card.setAttribute('aria-label', result.status);
+          addLine(`بانک: ${result.bankName || account.registeredBank}`);
           addLine(`وضعیت حساب: ${result.active === true ? 'فعال' : result.active === false ? 'غیرفعال' : 'نامشخص'}`);
-          addLine(result.nameMatches ? 'نام با نام ثبت‌شده برابر است.' : 'نام با نام ثبت‌شده برابر نیست؛ بررسی کنید.');
-          addLine('مقایسهٔ نام متنی است و تأیید هویت محسوب نمی‌شود.');
-        } else addLine(result.message);
+        } else {
+          addLine(`بانک: ${account.registeredBank}`);
+          addLine(result.message);
+        }
         output.append(card);
       }
       if (!data.accounts.length) output.textContent = 'حسابی برای استعلام ثبت نشده است.';

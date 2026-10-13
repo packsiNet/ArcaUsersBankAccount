@@ -8,7 +8,7 @@
     <div class="table-wrap"><table><thead><tr><th>نام و نام خانوادگی</th><th>همراه</th><th>ثبت (UTC)</th><th>جزئیات</th><th>استعلام شبا</th></tr></thead><tbody>
     @foreach (var a in Model.Applicants) {
         var complete = a.BankAccounts.Count > 0 && a.BankAccounts.All(b => b.InquiryCompletedAt != null);
-        var correct = complete && a.BankAccounts.All(b => Model.StoredInquiry(b) is { NameMatches: true, Active: not false });
+        var correct = complete && a.BankAccounts.All(b => Model.StoredInquiry(b)?.Correct == true);
         <tr><td>@a.FirstName @a.LastName</td><td dir="ltr">@(a.Mobile ?? "—")</td><td>@a.CreatedAt.ToString("yyyy/MM/dd HH:mm")</td><td><details><summary>@a.BankAccounts.Count حساب</summary><div class="bank-details">@foreach (var bank in a.BankAccounts) { <div><strong>بانک @bank.BankName</strong><p>شبا: <bdi>@Model.Mask(bank)</bdi></p></div> }</div></details></td><td>
             <form method="post" asp-page-handler="Inquire" class="inquiry-form">
                 <input type="hidden" name="applicantId" value="@a.Id" />
@@ -18,7 +18,7 @@
                 @foreach (var bank in a.BankAccounts.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id)) {
                     var stored = Model.StoredInquiry(bank);
                     if (stored is not null) {
-                        <div><strong>@bank.BankName</strong><p>شبا: <bdi>@Model.Mask(bank)</bdi></p><p>صاحب شبا: @stored.OwnerName</p><p>بانک: @(stored.BankName ?? "نامشخص")</p><p>وضعیت حساب: @(stored.Active == true ? "فعال" : stored.Active == false ? "غیرفعال" : "نامشخص")</p><p>@(stored.NameMatches == true ? "نام با نام ثبت‌شده برابر است." : "نام با نام ثبت‌شده برابر نیست؛ بررسی کنید.")</p><p>مقایسهٔ نام متنی است و تأیید هویت محسوب نمی‌شود.</p><p>استعلام ثبت شده: @bank.InquiryCompletedAt?.ToString("yyyy/MM/dd HH:mm") (UTC)</p></div>
+                        <div class="@(stored.Correct ? "inquiry-correct" : "inquiry-incorrect")" aria-label="@stored.Status"><p>بانک: @(stored.BankName ?? bank.BankName)</p><p>وضعیت حساب: @(stored.Active == true ? "فعال" : stored.Active == false ? "غیرفعال" : "نامشخص")</p></div>
                     }
                 }
             </div>

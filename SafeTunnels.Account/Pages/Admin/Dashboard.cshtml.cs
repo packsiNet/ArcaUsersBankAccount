@@ -48,6 +48,7 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
     public string Mask(BankAccount bank) => EncryptionService.Mask(
         encryption.Decrypt(bank.IBAN, EncryptionService.Purpose(bank.Id, "iban")));
     public IbanInquiryResult? StoredInquiry(BankAccount bank) => inquiry.Read(bank);
+    public string InquiryStatus(BankAccount bank) => StoredInquiry(bank)?.Status ?? "استعلام نشده";
     public async Task<IActionResult> OnPostInquireAsync(Guid applicantId, CancellationToken ct)
     {
         Response.Headers.CacheControl = "no-store";
@@ -55,14 +56,14 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
         return result is null ? NotFound() : new JsonResult(result);
     }
     public async Task<IActionResult> OnPostLogoutAsync() { await signIn.SignOutAsync(); return RedirectToPage("/Admin/Login"); }
-    // One row per person: name, mobile, then a bank-name/IBAN column pair per account. The header row comes first.
+    // One row per person: name, mobile, then bank, IBAN and inquiry status per account.
     private async Task<List<string[]>> ExportRowsAsync(bool masked, CancellationToken ct)
     {
         var applicants = await Query().Include(x => x.BankAccounts).OrderBy(x => x.CreatedAt).Take(10000).ToListAsync(ct);
         var rows = applicants.Select(a => new[] { a.FirstName + " " + a.LastName, a.Mobile ?? "" }
-            .Concat(a.BankAccounts.OrderBy(b => b.CreatedAt).SelectMany(b => new[] { b.BankName, masked ? Mask(b) : encryption.Decrypt(b.IBAN, EncryptionService.Purpose(b.Id, "iban")) })).ToArray()).ToList();
+            .Concat(a.BankAccounts.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).SelectMany(b => new[] { b.BankName, masked ? Mask(b) : encryption.Decrypt(b.IBAN, EncryptionService.Purpose(b.Id, "iban")), InquiryStatus(b) })).ToArray()).ToList();
         var header = new[] { "نام و نام خانوادگی", "شماره همراه" }
-            .Concat(Enumerable.Range(0, rows.Count == 0 ? 1 : Math.Max(1, rows.Max(r => (r.Length - 2) / 2))).SelectMany(i => new[] { "نام بانک " + Ordinal(i), "شماره شبا " + Ordinal(i) })).ToArray();
+            .Concat(Enumerable.Range(0, rows.Count == 0 ? 1 : Math.Max(1, rows.Max(r => (r.Length - 2) / 3))).SelectMany(i => new[] { "نام بانک " + Ordinal(i), "شماره شبا " + Ordinal(i), "وضعیت استعلام " + Ordinal(i) })).ToArray();
         rows.Insert(0, header);
         return rows;
     }

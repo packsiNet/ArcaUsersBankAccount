@@ -160,8 +160,8 @@ test('دسترسی مدیر، ماسک، خروجی CSV و خروج',async({page
  const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی CSV ماسک‌شده'}).click();
  const download=await downloadPromise;const csv=fs.readFileSync(await download.path(),'utf8');
  expect(csv).not.toContain(iban);expect(csv).toContain('••••');expect(csv).not.toContain('CardMasked');expect(csv).not.toContain('AccountMasked');
- const masked=[firstName+' کاربر ساختگی','09123456789','بانک آزمایشی','•••• '+iban.slice(-4),'بانک آزمایشی','•••• '+second.slice(-4)];
- expect(csv).toContain('"نام و نام خانوادگی","شماره همراه","نام بانک اول","شماره شبا اول","نام بانک دوم","شماره شبا دوم"');
+ const masked=[firstName+' کاربر ساختگی','09123456789','بانک آزمایشی','•••• '+iban.slice(-4),'استعلام نشده','بانک آزمایشی','•••• '+second.slice(-4),'استعلام نشده'];
+ expect(csv).toContain('"نام و نام خانوادگی","شماره همراه","نام بانک اول","شماره شبا اول","وضعیت استعلام اول","نام بانک دوم","شماره شبا دوم","وضعیت استعلام دوم"');
  expect(csv.split(/\r?\n/).filter(l=>l.includes(firstName))).toHaveLength(1);expect(csv).toContain(masked.map(c=>`"${c}"`).join(','));
  const excelPromise=page.waitForEvent('download');await page.getByRole('button',{name:'خروجی اکسل ماسک‌شده'}).click();
  const excel=await excelPromise;expect(excel.suggestedFilename()).toBe('accounts-masked.xlsx');
@@ -175,10 +175,31 @@ test('دسترسی مدیر، ماسک، خروجی CSV و خروج',async({page
  // One row per person: name, mobile, then a bank/IBAN pair for each account.
  const rows=sheet.split('<row>').filter(r=>r.includes(firstName));expect(rows).toHaveLength(1);
  const cells=[...rows[0].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map(m=>m[1]);
- expect(cells).toEqual([firstName+' کاربر ساختگی','09123456789','بانک آزمایشی',iban,'بانک آزمایشی',second]);
+ expect(cells).toEqual([firstName+' کاربر ساختگی','09123456789','بانک آزمایشی',iban,'استعلام نشده','بانک آزمایشی',second,'استعلام نشده']);
  expect(sheet).not.toContain('••••');
  await page.getByRole('button',{name:'خروج',exact:true}).click();await page.goto('/admin');await expect(page).toHaveURL(/\/admin\/login/);
 });
+test('نتیجه استعلام فقط بانک و وضعیت حساب را با رنگ درست نشان می‌دهد',async({page})=>{
+ const firstName=await fill(page,2);
+ await page.locator('#submit-button').click();await expect(page).toHaveURL(/\/Success$/);
+ await page.goto('/admin/login');await page.locator('[name="Password"]').fill(secrets.password);
+ await page.locator('button[type=submit]').click();await expect(page).toHaveURL(/\/admin$/);
+ await page.goto('/admin?Search='+encodeURIComponent(firstName));
+ await page.route('**/admin?handler=Inquire',route=>route.fulfill({json:{complete:true,accounts:[
+  {registeredBank:'بانک اول',result:{success:true,correct:true,status:'صحت اطلاعات',ownerName:'نامی که نباید نمایش یابد',bankName:'بانک اول',active:true}},
+  {registeredBank:'بانک دوم',result:{success:true,correct:false,status:'اطلاعات اشتباه',ownerName:'نامی که نباید نمایش یابد',bankName:'بانک دوم',active:false}}
+ ]}}));
+ await page.locator('.inquiry-form button').click();
+ const correct=page.locator('.inquiry-correct'),incorrect=page.locator('.inquiry-incorrect');
+ await expect(correct).toHaveText('بانک: بانک اولوضعیت حساب: فعال');
+ await expect(incorrect).toHaveText('بانک: بانک دوموضعیت حساب: غیرفعال');
+ await expect(correct.locator('p')).toHaveCount(2);await expect(incorrect.locator('p')).toHaveCount(2);
+ await expect(correct.locator('p').first()).toHaveCSS('color','rgb(22, 101, 52)');
+ await expect(incorrect.locator('p').first()).toHaveCSS('color','rgb(180, 35, 53)');
+ await expect(page.locator('.inquiry-results')).not.toContainText('نامی که نباید نمایش یابد');
+ await expect(page.locator('.inquiry-form button')).toBeDisabled();
+});
+
 test('قفل حساب مدیر بعد از پنج رمز نادرست',async({page})=>{
  try{
   for(let i=0;i<5;i++){

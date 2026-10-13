@@ -6,7 +6,11 @@ using SafeTunnels.Account.Validation;
 namespace SafeTunnels.Account.Services;
 
 public sealed record IbanInquiryResult(bool Success, string Message, string? OwnerName = null,
-    string? BankName = null, bool? Active = null, bool? NameMatches = null);
+    string? BankName = null, bool? Active = null, bool? NameMatches = null)
+{
+    public bool Correct => Success && NameMatches == true && Active != false;
+    public string Status => !Success ? "استعلام نشده" : Correct ? "صحت اطلاعات" : "اطلاعات اشتباه";
+}
 
 // API contract: https://github.com/api-ir/dotnet-sdk/blob/main/Services/IbanInfoService.cs
 public sealed class IbanInquiryService(HttpClient http, IConfiguration configuration)
