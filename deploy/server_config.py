@@ -39,7 +39,17 @@ def private_write(path, data):
         stream.write(data)
 
 
+def api_token(value):
+    token = (value or '').strip()
+    if token.lower().startswith('bearer '):
+        token = token[7:].strip()
+    if token and not re.fullmatch(r'[A-Za-z0-9._~+/=-]+', token):
+        raise ValueError('Invalid APIIR_TOKEN format.')
+    return token
+
+
 def prepare(config, directory):
+    token = api_token(config.get('api_ir_token'))
     config = validate(config)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -59,13 +69,28 @@ def prepare(config, directory):
                      encryption_key=base64.b64encode(secrets.token_bytes(32)).decode(),
                      backup_key=secrets.token_hex(32), admin_password=secrets.token_urlsafe(32) + 'aA1!')
         private_write(state_path, json.dumps(state, indent=2) + '\n')
+    if not token:
+        token = api_token(state.get('api_ir_token'))
+    # Preserve a token previously configured directly in the managed environment.
+    if not token and (directory / 'account.env').exists():
+        for line in (directory / 'account.env').read_text().splitlines():
+            if line.startswith(('ApiIr__Token=', 'APIIR_TOKEN=')):
+                token = api_token(line.partition('=')[2].strip().strip('"').strip("'"))
+                if token:
+                    break
+    if token and state.get('api_ir_token') != token:
+        state['api_ir_token'] = token
+        private_write(state_path, json.dumps(state, indent=2) + '\n')
     common = 'ASPNETCORE_ENVIRONMENT=Production\nASPNETCORE_URLS=http://127.0.0.1:5080\n'
     common += f'AllowedHosts={config["domain"]}\nDataProtection__KeyPath=/var/lib/safetunnels/keys\n'
     common += f'Administration__LoginEmail={state["admin_email"]}\n'
     common += f'Encryption__ActiveKeyId=server1\nEncryption__Keys__server1={state["encryption_key"]}\n'
     def connection(user, password):
         return f'ConnectionStrings__DefaultConnection="Host=127.0.0.1;Port=5432;Database=safetunnels;Username={user};Password={password};Maximum Pool Size=80;Include Error Detail=false;Log Parameters=false"\n'
-    private_write(directory / 'account.env', common + connection('safetunnels_runtime', state['runtime_password']))
+    runtime = common + connection('safetunnels_runtime', state['runtime_password'])
+    if token:
+        runtime += f'ApiIr__Token={token}\n'
+    private_write(directory / 'account.env', runtime)
     private_write(directory / 'migration.env', common + connection('safetunnels_owner', state['owner_password']) +
                   f'Bootstrap__Email={state["admin_email"]}\nBootstrap__Password={state["admin_password"]}\n')
     private_write(directory / 'backup.key', state['backup_key'] + '\n')

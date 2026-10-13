@@ -117,6 +117,7 @@ jobs:
       SERVER_KNOWN_HOSTS: ${{ secrets.SERVER_KNOWN_HOSTS || vars.SERVER_KNOWN_HOSTS }}
       LETSENCRYPT_EMAIL: ${{ secrets.LETSENCRYPT_EMAIL || vars.LETSENCRYPT_EMAIL }}
       ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL || vars.ADMIN_EMAIL }}
+      APIIR_TOKEN: ${{ secrets.APIIR_TOKEN }}
       RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

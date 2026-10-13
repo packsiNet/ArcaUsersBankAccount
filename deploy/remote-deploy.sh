@@ -36,6 +36,7 @@ from deploy.server_config import validate
 c=dict(app_url=os.environ['APP_URL'], release=os.environ['RELEASE_ID'],
        admin_email=os.environ.get('ADMIN_EMAIL',''), certificate_email=os.environ.get('LETSENCRYPT_EMAIL',''),
        ssh_port=os.environ['SERVER_PORT'])
+c['api_ir_token'] = os.environ.get('APIIR_TOKEN', '')
 validate(c)
 with open(sys.argv[1],'w') as f: json.dump(c,f)
 PY

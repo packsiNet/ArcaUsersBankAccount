@@ -12,10 +12,13 @@ Under **Settings > Secrets and variables > Actions**, configure:
 | `SERVER_HOST` | `account.zanatech.online` or the server's IPv4 address |
 | `SERVER_USER` | `root` |
 | `SERVER_SSH_KEY` | Complete unencrypted OpenSSH private key, including BEGIN/END lines |
+| `APIIR_TOKEN` | api.ir access token for production IBAN inquiries; store as an Actions secret |
 
 The matching public key must already be in `/root/.ssh/authorized_keys`. `SERVER_SSH_KEY` must be a secret; the other values can be secrets or variables. The server must already run Ubuntu **26.04**, have internet access and permit SSH from GitHub-hosted runners. Non-root users require passwordless sudo. No database password or application encryption key is needed in GitHub.
 
 Optional settings: `SERVER_PORT` (default 22), `LETSENCRYPT_EMAIL` (renewal notices), `ADMIN_EMAIL` (default `admin@account.zanatech.online`), `SERVER_KNOWN_HOSTS` (verified SSH known_hosts entry). Existing managed domain/admin email must remain stable on subsequent deployments.
+
+`APIIR_TOKEN` is sent over SSH and written to the root-only server state and `account.env` as `ApiIr__Token`. It is excluded from generated shell assignments and deployment metadata. A non-empty secret updates the server token; an absent secret preserves the existing token. To remove a token, remove it from both the server's `secrets.json` and `account.env`. After adding the GitHub secret, run the deployment workflow to apply it; saving a secret alone does not update the running server.
 
 Without `SERVER_KNOWN_HOSTS`, each run discovers and trusts the observed host key using ssh-keyscan; this does not independently authenticate the server. For verified host identity, obtain the key/fingerprint through your server provider's trusted console and supply the matching known_hosts line. SSH still enforces StrictHostKeyChecking. Passphrase-protected private keys are not supported by this unattended workflow.
 

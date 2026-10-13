@@ -32,6 +32,39 @@ class ConfigurationTests(unittest.TestCase):
             settings = self.settings(); settings['app_url'] = url
             with self.subTest(url=url), self.assertRaises(ValueError): config.validate(settings)
 
+    def test_api_token_is_private_preserved_and_rotatable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = config.prepare(self.settings(api_ir_token='Bearer synthetic-token-1'), directory)
+            root = Path(directory)
+            self.assertNotIn('api_ir_token', result)
+            self.assertNotIn('synthetic-token-1', (root/'deployment.json').read_text())
+            self.assertNotIn('synthetic-token-1', (root/'migration.env').read_text())
+            self.assertIn('ApiIr__Token=synthetic-token-1\n', (root/'account.env').read_text())
+            first = json.loads((root/'secrets.json').read_text())
+            config.prepare(self.settings(api_ir_token=''), directory)
+            self.assertEqual(first, json.loads((root/'secrets.json').read_text()))
+            self.assertIn('ApiIr__Token=synthetic-token-1\n', (root/'account.env').read_text())
+            config.prepare(self.settings(api_ir_token='synthetic-token-2'), directory)
+            second = json.loads((root/'secrets.json').read_text())
+            self.assertEqual({k:v for k,v in first.items() if k != 'api_ir_token'},
+                             {k:v for k,v in second.items() if k != 'api_ir_token'})
+            self.assertIn('ApiIr__Token=synthetic-token-2\n', (root/'account.env').read_text())
+
+    def test_preserves_manually_configured_api_token(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config.prepare(self.settings(), directory)
+            runtime = Path(directory)/'account.env'
+            runtime.write_text(runtime.read_text() + 'ApiIr__Token="Bearer synthetic-manual-token"\n')
+            config.prepare(self.settings(), directory)
+            self.assertIn('ApiIr__Token=synthetic-manual-token\n', runtime.read_text())
+
+    def test_rejects_api_token_environment_injection(self):
+        for token in ['token\nInjected=value', 'token"', '$(whoami)', 'token\\']:
+            with tempfile.TemporaryDirectory() as directory:
+                with self.subTest(token=token), self.assertRaises(ValueError):
+                    config.prepare(self.settings(api_ir_token=token), directory)
+                self.assertFalse((Path(directory)/'secrets.json').exists())
+
     def test_rejects_shell_injection(self):
         settings = self.settings(); settings['release'] = '$(whoami)'
         with self.assertRaises(ValueError): config.validate(settings)
