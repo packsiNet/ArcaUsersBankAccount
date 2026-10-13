@@ -5,6 +5,10 @@
     <div class="panel-heading"><div><span class="eyebrow">مدیریت ثبت اطلاعات</span><h1>نمای کلی سامانه</h1></div><form method="post" asp-page-handler="Logout"><button type="submit" class="secondary-button">خروج</button></form></div>
     <div class="stats"><div><span>افراد ثبت‌شده</span><strong>@Model.People</strong></div><div><span>حساب‌های بانکی</span><strong>@Model.Accounts</strong></div><div><span>آخرین ثبت (UTC)</span><strong class="date-stat">@(Model.LastRegistration?.ToString("yyyy/MM/dd HH:mm") ?? "—")</strong></div></div>
     <div class="admin-toolbar"><form method="get" class="search-form"><label class="sr-only" for="search">جست‌وجو</label><input id="search" name="Search" value="@Model.Search" maxlength="100" placeholder="نام، نام خانوادگی یا شماره همراه" /><button class="secondary-button">جست‌وجو</button></form><form method="post" asp-page-handler="Export"><input type="hidden" name="Search" value="@Model.Search" /><button class="secondary-button">خروجی CSV ماسک‌شده</button> <button asp-page-handler="ExportExcel" class="secondary-button">خروجی اکسل ماسک‌شده</button> <button asp-page-handler="ExportFullExcel" class="secondary-button success-button">خروجی اکسل کامل</button></form></div>
+    <form method="post" asp-page-handler="PendingInquiries" class="bulk-inquiry-form" data-account-url="@Url.Page("/Admin/Dashboard", "InquireBank")">
+        <button type="submit" class="secondary-button success-button">استعلام همه</button>
+        <p class="bulk-inquiry-status" role="status" aria-live="polite">تمام شباهای استعلام‌نشده بررسی می‌شوند؛ نتایج ثبت‌شده دوباره استعلام نمی‌شوند.</p>
+    </form>
     <div class="table-wrap"><table><thead><tr><th>نام و نام خانوادگی</th><th>همراه</th><th>ثبت (UTC)</th><th>جزئیات</th><th>استعلام شبا</th></tr></thead><tbody>
     @foreach (var a in Model.Applicants) {
         var complete = a.BankAccounts.Count > 0 && a.BankAccounts.All(b => b.InquiryCompletedAt != null);

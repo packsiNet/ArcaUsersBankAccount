@@ -1,4 +1,55 @@
 'use strict';
+const bulkForm = document.querySelector('.bulk-inquiry-form');
+if (bulkForm) {
+  const status = bulkForm.querySelector('.bulk-inquiry-status');
+  const summary = sessionStorage.getItem('bulk-inquiry-summary');
+  if (summary) { status.textContent = summary; sessionStorage.removeItem('bulk-inquiry-summary'); }
+  bulkForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = bulkForm.querySelector('button');
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'در حال استعلام همه…';
+    const rowButtons = [...document.querySelectorAll('.inquiry-form button')].filter(b => !b.disabled);
+    rowButtons.forEach(b => { b.disabled = true; });
+    let succeeded = 0, failed = 0, total = 0;
+    const post = async (url, bankId) => {
+      for (;;) {
+        const body = new FormData(bulkForm);
+        if (bankId) body.set('bankId', bankId);
+        const response = await fetch(url, { method: 'POST', body, credentials: 'same-origin', headers: { Accept: 'application/json' } });
+        if (response.redirected) throw new Error('نشست مدیریت پایان یافته است؛ دوباره وارد شوید.');
+        if (response.status === 429) {
+          status.textContent = 'محدودیت تعداد درخواست؛ ادامهٔ استعلام پس از یک دقیقه…';
+          await new Promise(resolve => setTimeout(resolve, 60000));
+          continue;
+        }
+        if (!response.ok) throw new Error('استعلام همه متوقف شد؛ نتایج موفق قبلی ذخیره شده‌اند.');
+        return response.json();
+      }
+    };
+    try {
+      status.textContent = 'در حال دریافت فهرست شباهای استعلام‌نشده…';
+      const { accountIds } = await post(bulkForm.action);
+      total = accountIds.length;
+      if (!total) { status.textContent = 'تمام شباها قبلاً استعلام شده‌اند.'; return; }
+      for (const id of accountIds) {
+        status.textContent = `در حال بررسی ${succeeded + failed + 1} از ${total} شبا؛ ثبت‌شده: ${succeeded}، ناموفق: ${failed}`;
+        const result = await post(bulkForm.dataset.accountUrl, id);
+        if (result.success) succeeded++; else failed++;
+      }
+      sessionStorage.setItem('bulk-inquiry-summary', `استعلام همه پایان یافت؛ ${succeeded} نتیجه ثبت شد و ${failed} استعلام ناموفق بود.`);
+      location.reload();
+    } catch (error) {
+      status.textContent = `${error instanceof Error ? error.message : 'ارتباط برقرار نشد.'} (${succeeded} نتیجه ثبت شده، ${failed} ناموفق از ${total} شبا)`;
+    } finally {
+      button.disabled = false;
+      button.textContent = 'استعلام همه';
+      rowButtons.forEach(b => { b.disabled = false; });
+    }
+  });
+}
+
 document.querySelectorAll('.inquiry-form').forEach(form => {
   form.addEventListener('submit', async event => {
     event.preventDefault();

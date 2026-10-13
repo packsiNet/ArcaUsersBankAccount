@@ -211,6 +211,27 @@ test('نتیجه استعلام فقط بانک و وضعیت حساب را با
  await expect(page.locator('.inquiry-form button')).toBeDisabled();
 });
 
+test('استعلام همه مستقل از صفحه و جست‌وجو فقط فهرست شباهای باقیمانده را بررسی می‌کند',async({page})=>{
+ await page.goto('/admin/login');await page.locator('[name="Password"]').fill(secrets.password);
+ await page.locator('button[type=submit]').click();await expect(page).toHaveURL(/\/admin$/);
+ await page.goto('/admin?Search='+encodeURIComponent('بدون نتیجه '+Date.now()));
+ const ids=['00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002'];
+ let pendingCalls=0,bankCalls=0;
+ await page.route('**/admin?handler=PendingInquiries',route=>{
+  pendingCalls++;return route.fulfill({json:{accountIds:pendingCalls===1?ids:[]}});
+ });
+ await page.route('**/admin?handler=InquireBank',route=>{
+  expect(route.request().postData()).toContain(ids[bankCalls++]);
+  return route.fulfill({json:{success:true}});
+ });
+ await page.getByRole('button',{name:'استعلام همه',exact:true}).click();
+ await expect(page.locator('.bulk-inquiry-status')).toContainText('2 نتیجه ثبت شد');
+ expect(bankCalls).toBe(2);
+ await page.getByRole('button',{name:'استعلام همه',exact:true}).click();
+ await expect(page.locator('.bulk-inquiry-status')).toHaveText('تمام شباها قبلاً استعلام شده‌اند.');
+ expect(bankCalls).toBe(2);
+});
+
 test('قفل حساب مدیر بعد از پنج رمز نادرست',async({page})=>{
  try{
   for(let i=0;i<5;i++){

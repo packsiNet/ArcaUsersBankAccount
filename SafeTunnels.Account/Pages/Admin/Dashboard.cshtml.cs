@@ -65,6 +65,13 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
         return result is null ? NotFound() : new JsonResult(result);
     }
     public async Task<IActionResult> OnPostLogoutAsync() { await signIn.SignOutAsync(); return RedirectToPage("/Admin/Login"); }
+    public async Task<IActionResult> OnPostPendingInquiriesAsync(CancellationToken ct) =>
+        new JsonResult(new { accountIds = await inquiry.PendingAccountsAsync(ct) });
+    public async Task<IActionResult> OnPostInquireBankAsync(Guid bankId, CancellationToken ct)
+    {
+        if (!await db.BankAccounts.AnyAsync(b => b.Id == bankId, ct)) return NotFound();
+        return new JsonResult(await inquiry.InquireAsync(bankId, ct));
+    }
     // One row per person: name, mobile, then bank, IBAN and inquiry status per account.
     private async Task<List<string[]>> ExportRowsAsync(bool masked, CancellationToken ct, bool includeOwners = false)
     {

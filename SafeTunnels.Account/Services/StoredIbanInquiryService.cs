@@ -10,6 +10,10 @@ public sealed record ApplicantInquiry(List<StoredAccountInquiry> Accounts, bool 
 
 public sealed class StoredIbanInquiryService(ApplicationDbContext db, EncryptionService encryption, IbanInquiryService inquiry)
 {
+    public Task<List<Guid>> PendingAccountsAsync(CancellationToken ct) => db.BankAccounts.AsNoTracking()
+        .Where(b => b.InquiryResult == null).OrderBy(b => b.CreatedAt).ThenBy(b => b.Id)
+        .Select(b => b.Id).ToListAsync(ct);
+
     public async Task<ApplicantInquiry?> InquireApplicantAsync(Guid applicantId, CancellationToken ct)
     {
         var banks = await db.BankAccounts.AsNoTracking().Where(b => b.ApplicantId == applicantId)
