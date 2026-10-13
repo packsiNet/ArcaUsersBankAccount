@@ -49,6 +49,15 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
         encryption.Decrypt(bank.IBAN, EncryptionService.Purpose(bank.Id, "iban")));
     public IbanInquiryResult? StoredInquiry(BankAccount bank) => inquiry.Read(bank);
     public string InquiryStatus(BankAccount bank) => StoredInquiry(bank)?.Status ?? "استعلام نشده";
+    public string[] MismatchedOwners(Applicant applicant) => applicant.BankAccounts
+        .OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).Select(StoredInquiry)
+        .Where(r => r is { Success: true, NameMatches: false } && !string.IsNullOrWhiteSpace(r.OwnerName))
+        .Select(r => r!.OwnerName!).Distinct().ToArray();
+    public string ExportName(Applicant applicant) {
+        var name = applicant.FirstName + " " + applicant.LastName;
+        var owners = MismatchedOwners(applicant);
+        return owners.Length == 0 ? name : name + " (" + string.Join("، ", owners) + ")";
+    }
     public async Task<IActionResult> OnPostInquireAsync(Guid applicantId, CancellationToken ct)
     {
         Response.Headers.CacheControl = "no-store";
@@ -57,11 +66,11 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
     }
     public async Task<IActionResult> OnPostLogoutAsync() { await signIn.SignOutAsync(); return RedirectToPage("/Admin/Login"); }
     // One row per person: name, mobile, then bank, IBAN and inquiry status per account.
-    private async Task<List<string[]>> ExportRowsAsync(bool masked, CancellationToken ct)
+    private async Task<List<string[]>> ExportRowsAsync(bool masked, CancellationToken ct, bool includeOwners = false)
     {
         var applicants = await db.Applicants.AsNoTracking().Include(x => x.BankAccounts)
             .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToListAsync(ct);
-        var rows = applicants.Select(a => new[] { a.FirstName + " " + a.LastName, a.Mobile ?? "" }
+        var rows = applicants.Select(a => new[] { includeOwners ? ExportName(a) : a.FirstName + " " + a.LastName, a.Mobile ?? "" }
             .Concat(a.BankAccounts.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).SelectMany(b => new[] { b.BankName, masked ? Mask(b) : encryption.Decrypt(b.IBAN, EncryptionService.Purpose(b.Id, "iban")), InquiryStatus(b) })).ToArray()).ToList();
         var header = new[] { "نام و نام خانوادگی", "شماره همراه" }
             .Concat(Enumerable.Range(0, rows.Count == 0 ? 1 : Math.Max(1, rows.Max(r => (r.Length - 2) / 3))).SelectMany(i => new[] { "نام بانک " + Ordinal(i), "شماره شبا " + Ordinal(i), "وضعیت استعلام " + Ordinal(i) })).ToArray();
@@ -77,11 +86,11 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
         return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray(), "text/csv; charset=utf-8", "accounts-masked.csv");
     }
     public async Task<IActionResult> OnPostExportExcelAsync(CancellationToken ct) =>
-        Xlsx(await ExportRowsAsync(masked: true, ct), rightToLeft: true, "accounts-masked.xlsx");
+        Xlsx(await ExportRowsAsync(masked: true, ct, includeOwners: true), rightToLeft: true, "accounts-masked.xlsx");
     public async Task<IActionResult> OnPostExportFullExcelAsync(CancellationToken ct)
     {
         // Unmasked report for administrators: full name, mobile and the complete decrypted IBAN.
-        var rows = await ExportRowsAsync(masked: false, ct);
+        var rows = await ExportRowsAsync(masked: false, ct, includeOwners: true);
         logger.LogWarning("Unmasked account export of {Count} rows by {Admin}", rows.Count - 1, User.Identity?.Name);
         Response.Headers.CacheControl = "no-store";
         return Xlsx(rows, rightToLeft: true, "accounts-full.xlsx");

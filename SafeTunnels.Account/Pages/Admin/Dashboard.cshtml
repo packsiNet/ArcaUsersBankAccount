@@ -9,7 +9,7 @@
     @foreach (var a in Model.Applicants) {
         var complete = a.BankAccounts.Count > 0 && a.BankAccounts.All(b => b.InquiryCompletedAt != null);
         var correct = complete && a.BankAccounts.All(b => Model.StoredInquiry(b)?.Correct == true);
-        <tr><td>@a.FirstName @a.LastName</td><td dir="ltr">@(a.Mobile ?? "—")</td><td>@a.CreatedAt.ToString("yyyy/MM/dd HH:mm")</td><td><details><summary>@a.BankAccounts.Count حساب</summary><div class="bank-details">@foreach (var bank in a.BankAccounts) { <div><strong>بانک @bank.BankName</strong><p>شبا: <bdi>@Model.Mask(bank)</bdi></p></div> }</div></details></td><td>
+        <tr><td>@a.FirstName @a.LastName<div class="account-owner-names">@foreach (var owner in Model.MismatchedOwners(a)) { <small class="account-owner-name">نام اصلی صاحب حساب: @owner</small> }</div></td><td dir="ltr">@(a.Mobile ?? "—")</td><td>@a.CreatedAt.ToString("yyyy/MM/dd HH:mm")</td><td><details><summary>@a.BankAccounts.Count حساب</summary><div class="bank-details">@foreach (var bank in a.BankAccounts) { <div><strong>بانک @bank.BankName</strong><p>شبا: <bdi>@Model.Mask(bank)</bdi></p></div> }</div></details></td><td>
             <form method="post" asp-page-handler="Inquire" class="inquiry-form">
                 <input type="hidden" name="applicantId" value="@a.Id" />
                 <button type="submit" class="secondary-button" disabled="@complete">@(correct ? "اطلاعات صحیح است" : complete ? "استعلام ثبت شده" : "استعلام همه شباها")</button>

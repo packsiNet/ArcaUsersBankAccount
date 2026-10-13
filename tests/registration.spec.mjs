@@ -193,14 +193,18 @@ test('نتیجه استعلام فقط بانک و وضعیت حساب را با
  await page.locator('button[type=submit]').click();await expect(page).toHaveURL(/\/admin$/);
  await page.goto('/admin?Search='+encodeURIComponent(firstName));
  await page.route('**/admin?handler=Inquire',route=>route.fulfill({json:{complete:true,accounts:[
-  {registeredBank:'بانک اول',result:{success:true,correct:true,status:'صحت اطلاعات',ownerName:'نامی که نباید نمایش یابد',bankName:'بانک اول',active:true}},
-  {registeredBank:'بانک دوم',result:{success:true,correct:false,status:'اطلاعات اشتباه',ownerName:'نامی که نباید نمایش یابد',bankName:'بانک دوم',active:false}}
+  {registeredBank:'بانک اول',result:{success:true,correct:true,nameMatches:true,status:'صحت اطلاعات',ownerName:'نامی که نباید نمایش یابد',bankName:'بانک اول',active:true}},
+  {registeredBank:'بانک دوم',result:{success:true,correct:false,nameMatches:false,status:'اطلاعات اشتباه',ownerName:'صاحب اصلی ساختگی',bankName:'بانک دوم',active:false}}
  ]}}));
  await page.locator('.inquiry-form button').click();
  const correct=page.locator('.inquiry-correct'),incorrect=page.locator('.inquiry-incorrect');
  await expect(correct).toHaveText('بانک: بانک اولوضعیت حساب: فعال');
  await expect(incorrect).toHaveText('بانک: بانک دوموضعیت حساب: غیرفعال');
  await expect(correct.locator('p')).toHaveCount(2);await expect(incorrect.locator('p')).toHaveCount(2);
+ const owner=page.locator('tbody tr td').first().locator('.account-owner-name');
+ await expect(owner).toHaveText('نام اصلی صاحب حساب: صاحب اصلی ساختگی');
+ await expect(owner).toHaveCSS('font-size','10px');
+ await expect(owner).toHaveCSS('color','rgb(138, 150, 164)');
  await expect(correct.locator('p').first()).toHaveCSS('color','rgb(22, 101, 52)');
  await expect(incorrect.locator('p').first()).toHaveCSS('color','rgb(180, 35, 53)');
  await expect(page.locator('.inquiry-results')).not.toContainText('نامی که نباید نمایش یابد');

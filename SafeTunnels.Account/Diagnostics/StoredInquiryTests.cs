@@ -58,6 +58,20 @@ internal static class StoredInquiryTests
             result = await Call();
             Check(result.Complete && result.Accounts.Count == 3 && handler.Calls[iban1] == 2 && handler.Calls[iban2] == 2);
             Check(result.Accounts.All(r => !r.Iban.Contains(iban1) && !r.Iban.Contains(iban2)));
+            var mismatch = new IbanInquiryResult(true, "", "صاحب اصلی آزمایشی", "بانک ساختگی", true, false);
+            foreach (var bank in new[] { first, second })
+                bank.InquiryResult = encryption.Encrypt(System.Text.Json.JsonSerializer.Serialize(mismatch), EncryptionService.Purpose(bank.Id, "inquiry"));
+            await db.SaveChangesAsync();
+            var dashboard = ActivatorUtilities.CreateInstance<Pages.Admin.DashboardModel>(scope.ServiceProvider);
+            dashboard.PageContext = new Microsoft.AspNetCore.Mvc.RazorPages.PageContext { HttpContext = new DefaultHttpContext() };
+            Check(dashboard.MismatchedOwners(applicant).SequenceEqual(new[] { "صاحب اصلی آزمایشی" }));
+            Check(dashboard.ExportName(applicant) == "آزمایش استعلام (صاحب اصلی آزمایشی)");
+            foreach (var export in new[] { await dashboard.OnPostExportExcelAsync(CancellationToken.None), await dashboard.OnPostExportFullExcelAsync(CancellationToken.None) }) {
+                using var stream = new MemoryStream(((Microsoft.AspNetCore.Mvc.FileContentResult)export).FileContents);
+                using var zip = new System.IO.Compression.ZipArchive(stream);
+                using var reader = new StreamReader(zip.GetEntry("xl/worksheets/sheet1.xml")!.Open());
+                Check((await reader.ReadToEndAsync()).Contains("آزمایش استعلام (صاحب اصلی آزمایشی)"));
+            }
             Console.WriteLine("PASS: encrypted persistent inquiry results, all accounts, failed retries, concurrent deduplication and new accounts.");
         }
         finally { await db.Applicants.Where(a => a.Id == applicant.Id).ExecuteDeleteAsync(); }

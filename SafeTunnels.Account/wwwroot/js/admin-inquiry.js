@@ -23,6 +23,16 @@ document.querySelectorAll('.inquiry-form').forEach(form => {
       correct = complete && data.accounts.length > 0 && data.accounts.every(account =>
         account.result.correct === true);
       output.replaceChildren();
+      const owners = form.closest('tr').querySelector('.account-owner-names');
+      owners.replaceChildren();
+      const names = new Set(data.accounts.filter(account => account.result.success &&
+        account.result.nameMatches === false && account.result.ownerName).map(account => account.result.ownerName));
+      for (const name of names) {
+        const line = document.createElement('small');
+        line.className = 'account-owner-name';
+        line.textContent = `نام اصلی صاحب حساب: ${name}`;
+        owners.append(line);
+      }
       for (const account of data.accounts) {
         const card = document.createElement('div');
         const addLine = text => { const p = document.createElement('p'); p.textContent = text; card.append(p); };
