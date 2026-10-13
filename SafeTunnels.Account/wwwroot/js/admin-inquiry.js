@@ -9,6 +9,7 @@ document.querySelectorAll('.inquiry-form').forEach(form => {
     button.textContent = 'در حال استعلام…';
     output.textContent = 'در حال دریافت اطلاعات حساب‌ها…';
     let complete = false;
+    let correct = false;
     try {
       const response = await fetch(form.action, {
         method: 'POST', body: new FormData(form), credentials: 'same-origin',
@@ -19,6 +20,8 @@ document.querySelectorAll('.inquiry-form').forEach(form => {
         ? 'تعداد درخواست‌ها زیاد است؛ یک دقیقه دیگر تلاش کنید.' : 'استعلام انجام نشد؛ دوباره تلاش کنید.');
       const data = await response.json();
       complete = data.complete === true;
+      correct = complete && data.accounts.length > 0 && data.accounts.every(account =>
+        account.result.success && account.result.nameMatches === true && account.result.active !== false);
       output.replaceChildren();
       for (const account of data.accounts) {
         const card = document.createElement('div');
@@ -47,7 +50,7 @@ document.querySelectorAll('.inquiry-form').forEach(form => {
         ? error.message : 'ارتباط برقرار نشد؛ دوباره تلاش کنید.';
     } finally {
       button.disabled = complete;
-      button.textContent = complete ? 'استعلام ثبت شده' : 'استعلام همه شباها';
+      button.textContent = correct ? 'اطلاعات صحیح است' : complete ? 'استعلام ثبت شده' : 'استعلام همه شباها';
     }
   });
 });
