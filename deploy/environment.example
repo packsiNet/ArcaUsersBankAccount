@@ -4,4 +4,5 @@ ConnectionStrings__DefaultConnection="Host=127.0.0.1;Database=safetunnels;Userna
 Encryption__ActiveKeyId=k1
 Encryption__Keys__k1=REPLACE_WITH_BASE64_32_RANDOM_BYTES
 DataProtection__KeyPath=/var/lib/safetunnels/keys
+ApiIr__Token=REPLACE_WITH_API_IR_TOKEN
 # Bootstrap__Email and Bootstrap__Password are supplied only to the one-time CLI.

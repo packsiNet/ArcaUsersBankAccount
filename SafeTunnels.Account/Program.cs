@@ -57,6 +57,9 @@ builder.Services.AddRateLimiter(o => {
 });
 builder.Services.AddSingleton<EncryptionService>();
 builder.Services.AddScoped<ApplicantService>();
+builder.Services.AddHttpClient<IbanInquiryService>(client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+    .RemoveAllLoggers();
 builder.Services.AddResponseCompression(o => o.EnableForHttps = false);
 builder.Services.AddHttpsRedirection(o => o.HttpsPort = 443);
 var app = builder.Build();

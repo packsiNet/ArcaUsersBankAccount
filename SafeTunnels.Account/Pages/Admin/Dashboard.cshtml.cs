@@ -11,7 +11,7 @@ using SafeTunnels.Account.Models;
 using SafeTunnels.Account.Services;
 using SafeTunnels.Account.Validation;
 namespace SafeTunnels.Account.Pages.Admin;
-public sealed class DashboardModel(ApplicationDbContext db, EncryptionService encryption, SignInManager<IdentityUser> signIn, ILogger<DashboardModel> logger) : PageModel
+public sealed class DashboardModel(ApplicationDbContext db, EncryptionService encryption, SignInManager<IdentityUser> signIn, ILogger<DashboardModel> logger, IbanInquiryService inquiry) : PageModel
 {
     [BindProperty(SupportsGet = true)] public string? Search { get; set; }
     [BindProperty(SupportsGet = true)] public int PageNumber { get; set; } = 1;
@@ -47,6 +47,19 @@ public sealed class DashboardModel(ApplicationDbContext db, EncryptionService en
     }
     public string Mask(BankAccount bank) => EncryptionService.Mask(
         encryption.Decrypt(bank.IBAN, EncryptionService.Purpose(bank.Id, "iban")));
+    public async Task<IActionResult> OnPostInquireAsync(Guid applicantId, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var applicant = await db.Applicants.AsNoTracking().Include(a => a.BankAccounts)
+            .SingleOrDefaultAsync(a => a.Id == applicantId, ct);
+        if (applicant is null) return NotFound();
+        var results = await Task.WhenAll(applicant.BankAccounts.OrderBy(b => b.CreatedAt).Select(async bank => {
+            var iban = encryption.Decrypt(bank.IBAN, EncryptionService.Purpose(bank.Id, "iban"));
+            var result = await inquiry.InquireAsync(iban, applicant.FirstName + " " + applicant.LastName, ct);
+            return new { iban = EncryptionService.Mask(iban), registeredBank = bank.BankName, result };
+        }));
+        return new JsonResult(new { accounts = results });
+    }
     public async Task<IActionResult> OnPostLogoutAsync() { await signIn.SignOutAsync(); return RedirectToPage("/Admin/Login"); }
     // One row per person: name, mobile, then a bank-name/IBAN column pair per account. The header row comes first.
     private async Task<List<string[]>> ExportRowsAsync(bool masked, CancellationToken ct)

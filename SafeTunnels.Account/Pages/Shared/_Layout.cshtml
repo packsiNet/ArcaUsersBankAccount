@@ -4,13 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>@ViewData["Title"] | SafeTunnels</title>
+    <title>@ViewData["Title"] | آرکاکوین</title>
     <link rel="stylesheet" href="~/css/site.min.css" asp-append-version="true" />
 </head>
 <body>
-    <header class="site-header"><a href="/" class="brand"><span class="brand-mark">S</span><span dir="ltr">SafeTunnels<span class="brand-sub">ACCOUNT PORTAL</span></span></a><span class="secure-pill"><span class="status-dot"></span> سامانه ثبت اطلاعات</span></header>
+    <header class="site-header"><span class="secure-pill"><span class="status-dot"></span> سامانه ثبت اطلاعات</span></header>
+    <aside class="investor-notice" aria-label="اطلاعیه سرمایه‌گذاران">
+        <p>با توجه به نزدیک شدن به موعد پرداختی‌های سرمایه‌گذاران، این پنل فقط برای سرعت بخشیدن به جمع‌آوری اطلاعات سرمایه‌گذاران آرکاکوین است.</p>
+        <p>اطلاعات شما نزد تیم آرکاکوین محفوظ است.</p>
+    </aside>
     <main>@RenderBody()</main>
-    <footer class="site-footer"><span>اطلاعات شما، با احترام به حریم خصوصی</span><a href="https://safetunnels.net" rel="noreferrer">وب‌سایت SafeTunnels ↗</a></footer>
+    <footer class="site-footer"><span>اطلاعات شما، با احترام به حریم خصوصی</span></footer>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
